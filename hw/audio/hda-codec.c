@@ -762,7 +762,31 @@ static void hda_audio_command(HDACodecDevice *hda, uint32_t nid, uint32_t data)
         break;
     case AC_VERB_SET_PIN_WIDGET_CONTROL:
         if (node->pinctl != payload) {
-            dprint(a, 1, "unhandled pin control bit\n");
+            if (node->pinctl == 0x40 && payload == 0) {
+                st = a->st + node->stindex;
+                if (st->node == NULL) {
+                    goto fail;
+                }
+                st->gain_left = payload & AC_AMP_GAIN;
+                st->mute_left = payload & AC_AMP_MUTE;
+                st->gain_right = payload & AC_AMP_GAIN;
+                st->mute_right = payload & AC_AMP_MUTE;
+                hda_audio_setup(st);           
+                hda_audio_set_amp(st);
+                hda_audio_set_running(st, false);
+            } 
+        } else {
+            st = a->st + node->stindex;
+            if (st->node == NULL){
+                goto fail;
+            }
+            st->gain_left = payload & AC_AMP_GAIN;
+            st->mute_left = payload & AC_AMP_MUTE;
+            st->gain_right = payload & AC_AMP_GAIN;
+            st->mute_right = payload & AC_AMP_MUTE;
+            hda_audio_setup(st);           
+            hda_audio_set_amp(st);
+            hda_audio_set_running(st, true);
         }
         hda_codec_response(hda, true, 0);
         break;
