@@ -72,6 +72,7 @@
 #define UHCI_PORT_WRITE_CLEAR  (UHCI_PORT_CSC | UHCI_PORT_ENC)
 
 #define FRAME_TIMER_FREQ 1000
+#define PERIODIC_INACTIVE  64
 
 #define FRAME_MAX_LOOPS  256
 
@@ -172,6 +173,8 @@ struct UHCIState {
     char *masterbus;
     uint32_t firstport;
     uint32_t maxframes;
+    /* Accumulated NAK counter; */
+    uint32_t async_naks;
 };
 
 typedef struct UHCI_TD {
@@ -906,6 +909,11 @@ static int uhci_handle_td(UHCIState *s, UHCIQueue *q, uint32_t qh_addr,
         return TD_RESULT_STOP_FRAME;
     }
 
+    if (async->packet.status == USB_RET_NAK)
+        s->async_naks ++;
+    else
+        s->async_naks = 0;
+
     if (async->packet.status == USB_RET_ASYNC) {
         uhci_async_link(async);
         if (!queuing) {
@@ -1138,7 +1146,7 @@ static void uhci_bh(void *opaque)
 static void uhci_frame_timer(void *opaque)
 {
     UHCIState *s = opaque;
-    uint64_t t_now, t_last_run;
+    uint64_t t_now, t_last_run, t_next;
     int i, frames;
     const uint64_t frame_t = get_ticks_per_sec() / FRAME_TIMER_FREQ;
 
@@ -1191,7 +1199,12 @@ static void uhci_frame_timer(void *opaque)
     }
     s->pending_int_mask = 0;
 
-    qemu_mod_timer(s->frame_timer, t_now + frame_t);
+    t_next = t_now + frame_t;
+    /* slower down the timer if the guest vm is idle */
+    if (s->async_naks > PERIODIC_INACTIVE)
+        t_next += 100*frame_t;
+
+    qemu_mod_timer(s->frame_timer, t_next);
 }
 
 static const MemoryRegionOps uhci_ioport_ops = {
