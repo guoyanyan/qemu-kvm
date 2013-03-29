@@ -37,6 +37,10 @@
 #include <mmsystem.h>
 #endif
 
+#ifdef CONFIG_TIMERFD
+#include <sys/timerfd.h>
+#endif
+
 /***********************************************************/
 /* timers */
 
@@ -68,6 +72,9 @@ struct qemu_alarm_timer {
     int (*start)(struct qemu_alarm_timer *t);
     void (*stop)(struct qemu_alarm_timer *t);
     void (*rearm)(struct qemu_alarm_timer *t, int64_t nearest_delta_ns);
+#ifdef CONFIG_TIMERFD
+    int timerfd;
+#endif
 #if defined(__linux__)
     timer_t timer;
     int fd;
@@ -123,6 +130,12 @@ static void qemu_rearm_alarm_timer(struct qemu_alarm_timer *t)
 /* TODO: MIN_TIMER_REARM_NS should be optimized */
 #define MIN_TIMER_REARM_NS 250000
 
+#ifdef CONFIG_TIMERFD
+static int timerfd_start_timer(struct qemu_alarm_timer *t);
+static void timerfd_stop_timer(struct qemu_alarm_timer *t);
+static void timerfd_rearm_timer(struct qemu_alarm_timer *t, int64_t delta);
+#endif
+
 #ifdef _WIN32
 
 static int mm_start_timer(struct qemu_alarm_timer *t);
@@ -150,6 +163,10 @@ static void dynticks_rearm_timer(struct qemu_alarm_timer *t, int64_t delta);
 #endif /* _WIN32 */
 
 static struct qemu_alarm_timer alarm_timers[] = {
+#ifdef CONFIG_TIMERFD
+    {"timerfd", timerfd_start_timer,
+     timerfd_stop_timer, timerfd_rearm_timer},
+#endif
 #ifndef _WIN32
 #ifdef __linux__
     {"dynticks", dynticks_start_timer,
@@ -478,6 +495,75 @@ static void host_alarm_handler(int host_signum)
 #if defined(__linux__)
 
 #include "qemu/compatfd.h"
+
+static void timerfd_event(void *opaque)
+{
+    struct qemu_alarm_timer *t = opaque;
+    ssize_t len;
+    uint64_t count;
+
+    len = read(t->timerfd, &count, sizeof(count));
+    g_assert(len == sizeof(count));
+
+    t->expired = true;
+    t->pending = true;
+
+    /* We already process pending timers at the end of the main loop whereas
+     * this function is called during I/O processing.  That means we know that
+     * pending timers will be checked before select()'ing again which means we
+     * don't need to explicitly call qemu_notify_event()
+     */
+}
+
+static int timerfd_start_timer(struct qemu_alarm_timer *t)
+{
+    t->timerfd = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC);
+    if (t->timerfd == -1) {
+        return -errno;
+    }
+
+    qemu_set_fd_handler(t->timerfd, timerfd_event, NULL, t);
+
+    return 0;
+}
+
+static void timerfd_stop_timer(struct qemu_alarm_timer *t)
+{
+    qemu_set_fd_handler(t->timerfd, NULL, NULL, NULL);
+    close(t->timerfd);
+    t->timerfd = -1;
+}
+
+static void timerfd_rearm_timer(struct qemu_alarm_timer *t,
+                                int64_t nearest_delta_ns)
+{
+    int ret;
+    struct itimerspec timeout;
+    int64_t current_ns;
+
+    if (nearest_delta_ns < MIN_TIMER_REARM_NS) {
+        nearest_delta_ns = MIN_TIMER_REARM_NS;
+    }
+
+    /* check whether a timer is already running */
+    ret = timerfd_gettime(t->timerfd, &timeout);
+    g_assert(ret == 0);
+
+    current_ns = timeout.it_value.tv_sec * 1000000000LL;
+    current_ns += timeout.it_value.tv_nsec;
+
+    if (current_ns && current_ns <= nearest_delta_ns) {
+        return;
+    }
+
+    timeout.it_interval.tv_sec = 0;
+    timeout.it_interval.tv_nsec = 0; /* 0 for one-shot timer */
+    timeout.it_value.tv_sec =  nearest_delta_ns / 1000000000;
+    timeout.it_value.tv_nsec = nearest_delta_ns % 1000000000;
+
+    ret = timerfd_settime(t->timerfd, 0, &timeout, NULL);
+    g_assert(ret == 0);
+}
 
 static int dynticks_start_timer(struct qemu_alarm_timer *t)
 {
