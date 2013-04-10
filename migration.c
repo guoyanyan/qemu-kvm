@@ -412,6 +412,9 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
         unix_start_outgoing_migration(s, p, &local_err);
     } else if (strstart(uri, "fd:", &p)) {
         fd_start_outgoing_migration(s, p, &local_err);
+    } else if (strstart(uri, "savevm:", &p)) {
+        s->savevm = 1;
+        exec_start_outgoing_migration(s, p, &local_err);
 #endif
     } else {
         error_set(errp, QERR_INVALID_PARAMETER_VALUE, "uri", "a valid migration protocol");
@@ -492,8 +495,36 @@ int64_t migrate_xbzrle_cache_size(void)
     return s->xbzrle_cache_size;
 }
 
-/* migration thread support */
+static int migration_create_snapshot(MigrationState *s)
+{
+    QEMUSnapshotInfo sn;
+    struct timeval tv;
+    struct tm tm;
+    BlockDriverState *bs = NULL;
 
+    memset((void*)&sn, 0, sizeof(sn));
+
+    gettimeofday(&tv, NULL);
+    sn.date_sec = tv.tv_sec;
+    sn.date_nsec = tv.tv_usec * 1000;
+    sn.vm_state_size = 0;
+
+    /* cast below needed for OpenBSD where tv_sec is still 'long' */
+    localtime_r((const time_t *)&tv.tv_sec, &tm);
+    strftime(sn.name, sizeof(sn.name), "vm-%Y%m%d%H%M%S", &tm);
+
+    while ((bs = bdrv_next(bs))) {
+        if (bdrv_can_snapshot(bs)) {
+            if (bdrv_snapshot_create(bs, &sn) < 0) {
+                return -1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+/* migration thread support */
 static void *migration_thread(void *opaque)
 {
     MigrationState *s = opaque;
@@ -570,7 +601,14 @@ static void *migration_thread(void *opaque)
         s->total_time = end_time - s->total_time;
         s->downtime = end_time - start_time;
         runstate_set(RUN_STATE_POSTMIGRATE);
-//    } else {
+
+        if (s->savevm) {
+            migration_create_snapshot(s);
+            if (old_vm_running) {
+                vm_start();
+            }
+        }
+    } else {
         if (old_vm_running) {
             vm_start();
         }
