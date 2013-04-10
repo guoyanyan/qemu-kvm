@@ -570,7 +570,7 @@ static void *migration_thread(void *opaque)
         s->total_time = end_time - s->total_time;
         s->downtime = end_time - start_time;
         runstate_set(RUN_STATE_POSTMIGRATE);
-    } else {
+//    } else {
         if (old_vm_running) {
             vm_start();
         }
