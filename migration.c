@@ -375,6 +375,31 @@ void migrate_del_blocker(Error *reason)
     migration_blockers = g_slist_remove(migration_blockers, reason);
 }
 
+static void savevm_start_outgoing_migration(MigrationState *s, 
+                                            const char *command, 
+                                            Error **errp) {
+
+    const char *s1 = command, *end = NULL;
+    char  *s2 = s->savevm.name;
+
+    if ( (end = strchr(command, ':')) == NULL ) {
+        error_setg(errp, "bad live savevm syntax: %s", command);
+        return;
+    }
+
+    if (end - s1 >= sizeof(s->savevm.name)) {
+        error_setg(errp, "bad live savevm name");
+        return;
+    }
+
+    while(s1 < end) {
+        *s2++ = *s1++;
+    }
+    
+    s->savevm.enabled = 1;
+    exec_start_outgoing_migration(s, end + 1, errp);
+}
+
 void qmp_migrate(const char *uri, bool has_blk, bool blk,
                  bool has_inc, bool inc, bool has_detach, bool detach,
                  Error **errp)
@@ -413,8 +438,7 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
     } else if (strstart(uri, "fd:", &p)) {
         fd_start_outgoing_migration(s, p, &local_err);
     } else if (strstart(uri, "savevm:", &p)) {
-        s->savevm = 1;
-        exec_start_outgoing_migration(s, p, &local_err);
+        savevm_start_outgoing_migration(s, p, &local_err);
 #endif
     } else {
         error_set(errp, QERR_INVALID_PARAMETER_VALUE, "uri", "a valid migration protocol");
@@ -497,7 +521,7 @@ int64_t migrate_xbzrle_cache_size(void)
 
 static int migration_create_snapshot(MigrationState *s)
 {
-    QEMUSnapshotInfo sn;
+    QEMUSnapshotInfo sn, sn1, *snapshot = &sn1;
     struct timeval tv;
     struct tm tm;
     BlockDriverState *bs = NULL;
@@ -509,12 +533,22 @@ static int migration_create_snapshot(MigrationState *s)
     sn.date_nsec = tv.tv_usec * 1000;
     sn.vm_state_size = 0;
 
-    /* cast below needed for OpenBSD where tv_sec is still 'long' */
-    localtime_r((const time_t *)&tv.tv_sec, &tm);
-    strftime(sn.name, sizeof(sn.name), "vm-%Y%m%d%H%M%S", &tm);
+    if (strlen(s->savevm.name) > 0) {
+        pstrcpy(sn.name, sizeof(sn.name), s->savevm.name);
+    } else {
+        /* cast below needed for OpenBSD where tv_sec is still 'long' */
+        localtime_r((const time_t *)&tv.tv_sec, &tm);
+        strftime(sn.name, sizeof(sn.name), "vm-%Y%m%d%H%M%S", &tm);
+    }
 
     while ((bs = bdrv_next(bs))) {
         if (bdrv_can_snapshot(bs)) {
+            if (bdrv_snapshot_find(bs, snapshot, sn.name) >= 0) {
+                if(bdrv_snapshot_delete(bs, sn.name) < 0) {
+                    return -1;
+                }
+            }
+
             if (bdrv_snapshot_create(bs, &sn) < 0) {
                 return -1;
             }
@@ -602,7 +636,7 @@ static void *migration_thread(void *opaque)
         s->downtime = end_time - start_time;
         runstate_set(RUN_STATE_POSTMIGRATE);
 
-        if (s->savevm) {
+        if (s->savevm.enabled) {
             migration_create_snapshot(s);
             if (old_vm_running) {
                 vm_start();
