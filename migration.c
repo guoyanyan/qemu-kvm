@@ -503,6 +503,7 @@ static void *migration_thread(void *opaque)
     int64_t max_size = 0;
     int64_t start_time = initial_time;
     bool old_vm_running = false;
+    double bandwidth = 0;
 
     DPRINTF("beginning savevm\n");
     qemu_savevm_state_begin(s->file, &s->params);
@@ -542,7 +543,9 @@ static void *migration_thread(void *opaque)
         if (current_time >= initial_time + BUFFER_DELAY) {
             uint64_t transferred_bytes = qemu_ftell(s->file) - initial_bytes;
             uint64_t time_spent = current_time - initial_time - sleep_time;
-            double bandwidth = transferred_bytes / time_spent;
+            if (time_spent > 0) {
+                bandwidth = transferred_bytes / time_spent;
+            }
             max_size = bandwidth * migrate_max_downtime() / 1000000;
 
             DPRINTF("transferred %" PRIu64 " time_spent %" PRIu64
@@ -550,7 +553,7 @@ static void *migration_thread(void *opaque)
                     transferred_bytes, time_spent, bandwidth, max_size);
             /* if we haven't sent anything, we don't want to recalculate
                10000 is a small enough number for our purposes */
-            if (s->dirty_bytes_rate && transferred_bytes > 10000) {
+            if (s->dirty_bytes_rate && transferred_bytes > 10000 && bandwidth > 0) {
                 s->expected_downtime = s->dirty_bytes_rate / bandwidth;
             }
 
