@@ -27,6 +27,13 @@ struct MigrationParams {
     bool shared;
 };
 
+typedef struct SaveVMParams SaveVMParams;
+
+struct SaveVMParams {
+    int enabled;
+    const char name[256];
+};
+
 typedef struct MigrationState MigrationState;
 
 struct MigrationState
@@ -47,7 +54,7 @@ struct MigrationState
     int64_t dirty_bytes_rate;
     bool enabled_capabilities[MIGRATION_CAPABILITY_MAX];
     int64_t xbzrle_cache_size;
-    int savevm;
+    SaveVMParams savevm;
 };
 
 void process_incoming_migration(QEMUFile *f);
