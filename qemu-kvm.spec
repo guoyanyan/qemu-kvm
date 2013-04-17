@@ -412,12 +412,6 @@ rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/bios.bin
 # Provided by package sgabios
 rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/sgabios.bin
 
-# remove nic roms not needed for litevirt
-rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/efi-eepro100.rom
-rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/efi-ne2k_pci.rom
-rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/efi-rtl8139.rom
-rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/efi-pcnet.rom
-
 %if 0%{?system_x86:1}
 # the pxe gpxe images will be symlinks to the images on
 # /usr/share/ipxe, as QEMU doesn't know how to look
@@ -442,10 +436,6 @@ rom_link ../vgabios/VGABIOS-lgpl-latest.qxl.bin vgabios-qxl.bin
 rom_link ../vgabios/VGABIOS-lgpl-latest.stdvga.bin vgabios-stdvga.bin
 rom_link ../seabios/bios.bin bios.bin
 %endif
-
-# for efi binaries
-install -m 0644 pc-bios/efi-e1000.rom    $RPM_BUILD_ROOT%{_datadir}/%{name}
-install -m 0644 pc-bios/efi-virtio.rom   $RPM_BUILD_ROOT%{_datadir}/%{name}
 
 # For the qemu-guest-agent subpackage install the systemd
 # service and udev rules.
@@ -551,8 +541,6 @@ getent passwd qemu >/dev/null || \
 %{_datadir}/%{name}/vgabios-stdvga.bin
 %{_datadir}/%{name}/pxe-e1000.rom
 %{_datadir}/%{name}/pxe-virtio.rom
-%{_datadir}/%{name}/efi-e1000.rom
-%{_datadir}/%{name}/efi-virtio.rom
 %{_datadir}/%{name}/qemu-icon.bmp
 %config(noreplace) %{_sysconfdir}/qemu/target-x86_64.conf
 %ifarch %{ix86} x86_64
