@@ -55,8 +55,8 @@
 
 Summary: qemu-kvm is the qemu backend for kvm
 Name: qemu
-Version: 1.4.0
-Release: 10002
+Version: 1.4.1
+Release: 10000
 # Epoch because we pushed a qemu-1.0 package. AIUI this can't ever be dropped
 Epoch: 2
 License: GPLv2+ and LGPLv2+ and BSD
@@ -580,6 +580,9 @@ getent passwd qemu >/dev/null || \
 %{_bindir}/qom-set
 
 %changelog
+* Sat Apr 06 2013 Hao Luo <hluo@litevirt.com> - 2:1.4.1-10000
+- Upgrade to 1.4.1
+
 * Sat Apr 06 2013 Hao Luo <hluo@litevirt.com> - 2:1.4.0-10002
 - Remove pcbios dependencies
 
