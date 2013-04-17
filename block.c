@@ -918,6 +918,17 @@ int bdrv_open_backing_file(BlockDriverState *bs, QDict *options)
     ret = bdrv_open(bs->backing_hd,
                     *backing_filename ? backing_filename : NULL, options,
                     back_flags, back_drv);
+
+    if (ret < 0) {
+        /* 
+         * try again without BDRV_O_NOCACHE, which is helpful 
+         * when backing image is located in ramfs like /dev/shm
+         */
+        back_flags = bs->open_flags & ~BDRV_O_NOCACHE;
+        ret = bdrv_open(bs->backing_hd, backing_filename, NULL,
+            back_flags, back_drv);
+    }
+
     if (ret < 0) {
         bdrv_delete(bs->backing_hd);
         bs->backing_hd = NULL;
