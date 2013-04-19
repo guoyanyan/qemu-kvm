@@ -102,10 +102,10 @@ BuildRequires: ceph-devel
 # We need both because the 'stap' binary is probed for by configure
 BuildRequires: systemtap
 BuildRequires: systemtap-sdt-devel
-
-%if 0
 # For network block driver
 BuildRequires: libcurl-devel
+
+%if 0
 # For XFS discard support in raw-posix.c
 BuildRequires: xfsprogs-devel
 %endif
@@ -260,6 +260,7 @@ dobuild() {
         --audio-drv-list=oss \
         --enable-libiscsi \
         --enable-usb-redir \
+        --enable-curl \
         --disable-strip \
         --disable-slirp \
         --disable-nptl \
@@ -267,7 +268,6 @@ dobuild() {
         --disable-vde \
         --disable-xfsctl \
         --disable-sdl \
-        --disable-curl \
         --disable-tcg-interpreter \
         --disable-bluez \
         --disable-system \
