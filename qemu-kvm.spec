@@ -104,6 +104,7 @@ BuildRequires: systemtap
 BuildRequires: systemtap-sdt-devel
 # For network block driver
 BuildRequires: libcurl-devel
+BuildRequires: libssh2-devel
 
 %if 0
 # For XFS discard support in raw-posix.c
@@ -261,6 +262,7 @@ dobuild() {
         --enable-libiscsi \
         --enable-usb-redir \
         --enable-curl \
+        --enable-libssh2 \
         --disable-strip \
         --disable-slirp \
         --disable-nptl \
