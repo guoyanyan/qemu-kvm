@@ -641,6 +641,16 @@ void bdrv_disable_copy_on_read(BlockDriverState *bs)
     bs->copy_on_read--;
 }
 
+void bdrv_enable_io_mirroring(BlockDriverState *bs)
+{
+    bs->in_mirroring = 1;
+}
+
+void bdrv_disable_io_mirroring(BlockDriverState *bs)
+{
+    bs->in_mirroring = 0;
+}
+
 static int bdrv_open_flags(BlockDriverState *bs, int flags)
 {
     int open_flags = flags | BDRV_O_CACHE_WB;
@@ -2647,6 +2657,7 @@ static int coroutine_fn bdrv_co_do_writev(BlockDriverState *bs,
         ret = bdrv_co_do_write_zeroes(bs, sector_num, nb_sectors);
     } else {
         ret = drv->bdrv_co_writev(bs, sector_num, nb_sectors, qiov);
+        /* mirroring here!!!*/
     }
 
     if (ret == 0 && !bs->enable_write_cache) {

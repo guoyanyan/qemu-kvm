@@ -284,6 +284,7 @@ struct BlockDriverState {
     char device_name[32];
     HBitmap *dirty_bitmap;
     int in_use; /* users other than guest access, eg. block migration */
+    int in_mirroring; /* drive in mirroring status or not */
     QTAILQ_ENTRY(BlockDriverState) list;
 
     QLIST_HEAD(, BdrvTrackedRequest) tracked_requests;

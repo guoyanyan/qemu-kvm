@@ -631,6 +631,8 @@ DriveInfo *drive_init(QemuOpts *all_opts, BlockInterfaceType block_default_type)
     /* io mirroring/dup */
     if (mirroring && *mirroring != 0) {
         bdrv_flags |= BDRV_O_MIRRORING;
+        /* io mirroring is started by default */
+        bdrv_enable_io_mirroring(dinfo->bdrv); 
         snprintf(dinfo->bdrv->mirroring_file, 1024, "%s", mirroring);
     }
 
