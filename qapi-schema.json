@@ -753,6 +753,8 @@
 #
 # @iops_wr: write I/O operations per second is specified
 #
+# @virtual_size: size of block device, in bytes
+#
 # Since: 0.14.0
 #
 # Notes: This interface is only found in @BlockInfo.
@@ -762,7 +764,8 @@
             '*backing_file': 'str', 'backing_file_depth': 'int',
             'encrypted': 'bool', 'encryption_key_missing': 'bool',
             'bps': 'int', 'bps_rd': 'int', 'bps_wr': 'int',
-            'iops': 'int', 'iops_rd': 'int', 'iops_wr': 'int'} }
+            'iops': 'int', 'iops_rd': 'int', 'iops_wr': 'int',
+            'virtual_size': 'int' } }
 
 ##
 # @BlockDeviceIoStatus:

@@ -3129,6 +3129,7 @@ BlockInfo *bdrv_query_info(BlockDriverState *bs)
         info->has_inserted = true;
         info->inserted = g_malloc0(sizeof(*info->inserted));
         info->inserted->file = g_strdup(bs->filename);
+        info->inserted->virtual_size = bdrv_getlength(bs);
         info->inserted->ro = bs->read_only;
         info->inserted->drv = g_strdup(bs->drv->format_name);
         info->inserted->encrypted = bs->encrypted;
