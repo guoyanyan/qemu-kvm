@@ -19,7 +19,6 @@
 #include "block/block_int.h"
 #include "block/blockjob.h"
 #include "qemu/ratelimit.h"
-#include "backup.h"
 
 #define DEBUG_BACKUP 0
 
@@ -29,19 +28,20 @@
     do { if (DEBUG_BACKUP) { printf("backup: " fmt, ## __VA_ARGS__); } } \
     while (0)
 
+#define BACKUP_CLUSTER_BITS 16
+#define BACKUP_CLUSTER_SIZE (1<<BACKUP_CLUSTER_BITS)
+#define BACKUP_BLOCKS_PER_CLUSTER (BACKUP_CLUSTER_SIZE/BDRV_SECTOR_SIZE)
 
 #define SLICE_TIME 100000000ULL /* ns */
 
 typedef struct BackupBlockJob {
     BlockJob common;
+    BlockDriverState *target;
     RateLimit limit;
     CoRwlock rwlock;
     uint64_t sectors_read;
     unsigned long *bitmap;
     int bitmap_size;
-    BackupDumpFunc *backup_dump_cb;
-    BlockDriverCompletionFunc *backup_complete_cb;
-    void *opaque;
 } BackupBlockJob;
 
 static bool backup_get_bitmap(BackupBlockJob *job, int64_t cluster_num)
@@ -149,17 +149,22 @@ static int coroutine_fn backup_do_cow(BlockDriverState *bs,
                         start);
                 goto out;
             }
+
+            zero = buffer_is_zero(bounce_buffer, BACKUP_CLUSTER_SIZE);
 #if USE_ALLOCATION_CHECK
         }
 #endif
         job->sectors_read += BACKUP_BLOCKS_PER_CLUSTER;
 
-        ret = job->backup_dump_cb(job->opaque, bs, start,
-                                  zero ? NULL : bounce_buffer);
-        if (ret < 0) {
-            DPRINTF("brdv_co_backup_cow dump_cluster_cb C%" PRId64 " failed\n",
-                    start);
-            goto out;
+        if (!zero) {
+            ret = bdrv_co_writev(job->target, start * BACKUP_BLOCKS_PER_CLUSTER,
+                                 BACKUP_BLOCKS_PER_CLUSTER,
+                                 &bounce_qiov);
+            if (ret < 0) {
+                DPRINTF("brdv_co_backup_cow dump_cluster_cb C%" PRId64
+                        " failed\n", start);
+                goto out;
+            }
         }
 
         DPRINTF("brdv_co_backup_cow done C%" PRId64 "\n", start);
@@ -217,8 +222,8 @@ static void coroutine_fn backup_run(void *opaque)
     int64_t start, end;
 
     start = 0;
-    end = (bs->total_sectors + BACKUP_BLOCKS_PER_CLUSTER - 1) /
-        BACKUP_BLOCKS_PER_CLUSTER;
+    end = (bdrv_getlength(bs) / BDRV_SECTOR_SIZE +
+           BACKUP_BLOCKS_PER_CLUSTER - 1) / BACKUP_BLOCKS_PER_CLUSTER;
 
     DPRINTF("backup_run start %s %" PRId64 " %" PRId64 "\n",
             bdrv_get_device_name(bs), start, end);
@@ -233,7 +238,6 @@ static void coroutine_fn backup_run(void *opaque)
 
         /* we need to yield so that qemu_aio_flush() returns.
          * (without, VM does not reboot)
-         * Note: use 1000 instead of 0 (0 prioritize this task too much)
          */
         if (job->common.speed) {
             uint64_t delay_ns = ratelimit_calculate_delay(
@@ -241,7 +245,7 @@ static void coroutine_fn backup_run(void *opaque)
             job->sectors_read = 0;
             block_job_sleep_ns(&job->common, rt_clock, delay_ns);
         } else {
-            block_job_sleep_ns(&job->common, rt_clock, 1000);
+            block_job_sleep_ns(&job->common, rt_clock, 0);
         }
 
         if (block_job_is_cancelled(&job->common)) {
@@ -272,84 +276,46 @@ static void coroutine_fn backup_run(void *opaque)
     qemu_co_rwlock_wrlock(&job->rwlock);
     qemu_co_rwlock_unlock(&job->rwlock);
 
+    g_free(job->bitmap);
+
+    bdrv_delete(job->target);
+
     DPRINTF("backup_run complete %d\n", ret);
     block_job_completed(&job->common, ret);
 }
 
-static void backup_job_cleanup_cb(void *opaque, int ret)
+void backup_start(BlockDriverState *bs, BlockDriverState *target,
+                  int64_t speed,
+                  BlockDriverCompletionFunc *cb, void *opaque,
+                  Error **errp)
 {
-    BlockDriverState *bs = opaque;
-    assert(bs);
-    BackupBlockJob *job = (BackupBlockJob *)bs->job;
-    assert(job);
-
-    DPRINTF("backup_job_cleanup_cb start %d\n", ret);
-
-    job->backup_complete_cb(job->opaque, ret);
-
-    DPRINTF("backup_job_cleanup_cb end\n");
-
-    g_free(job->bitmap);
-}
-
-void
-backup_job_start(BlockDriverState *bs, bool cancel)
-{
-    assert(bs);
-    assert(bs->job);
-    assert(bs->job->co == NULL);
-
-    if (cancel) {
-        block_job_cancel(bs->job); /* set cancel flag */
-    }
-
-    bs->job->co = qemu_coroutine_create(backup_run);
-    qemu_coroutine_enter(bs->job->co, bs->job);
-}
-
-int
-backup_job_create(BlockDriverState *bs, BackupDumpFunc *backup_dump_cb,
-                  BlockDriverCompletionFunc *backup_complete_cb,
-                  void *opaque, int64_t speed)
-{
-    assert(bs);
-    assert(backup_dump_cb);
-    assert(backup_complete_cb);
-
-    if (bs->job) {
-        DPRINTF("bdrv_backup_init failed - running job on %s\n",
-                bdrv_get_device_name(bs));
-        return -1;
-    }
-
     int64_t bitmap_size;
-    const char *devname = bdrv_get_device_name(bs);
 
-    if (!devname || !devname[0]) {
-        return -1;
-    }
+    assert(bs);
+    assert(target);
+    assert(cb);
 
-    DPRINTF("bdrv_backup_init %s\n", bdrv_get_device_name(bs));
+    DPRINTF("backup_start %s\n", bdrv_get_device_name(bs));
 
-    Error *errp;
     BackupBlockJob *job = block_job_create(&backup_job_type, bs, speed,
-                                           backup_job_cleanup_cb, bs, &errp);
+                                           cb, opaque, errp);
+    if (!job) {
+        return;
+    }
 
     qemu_co_rwlock_init(&job->rwlock);
 
+    job->target = target;
     job->common.cluster_size = BACKUP_CLUSTER_SIZE;
+    job->common.len = bdrv_getlength(bs);
 
-    bitmap_size = bs->total_sectors +
+    bitmap_size = job->common.len / BDRV_SECTOR_SIZE +
         BACKUP_BLOCKS_PER_CLUSTER * BITS_PER_LONG - 1;
     bitmap_size /= BACKUP_BLOCKS_PER_CLUSTER * BITS_PER_LONG;
 
-    job->backup_dump_cb = backup_dump_cb;
-    job->backup_complete_cb = backup_complete_cb;
-    job->opaque = opaque;
     job->bitmap_size = bitmap_size;
     job->bitmap = g_new0(unsigned long, bitmap_size);
 
-    job->common.len = bs->total_sectors*BDRV_SECTOR_SIZE;
-
-    return 0;
+    job->common.co = qemu_coroutine_create(backup_run);
+    qemu_coroutine_enter(job->common.co, job);
 }
