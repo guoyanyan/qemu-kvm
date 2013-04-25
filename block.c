@@ -54,6 +54,7 @@
 typedef enum {
     BDRV_REQ_COPY_ON_READ = 0x1,
     BDRV_REQ_ZERO_WRITE   = 0x2,
+    BDRV_REQ_BACKUP_ONLY  = 0x4,
 } BdrvRequestFlags;
 
 static void bdrv_dev_change_media_cb(BlockDriverState *bs, bool load);
@@ -1763,7 +1764,7 @@ int bdrv_commit(BlockDriverState *bs)
 
     if (!drv)
         return -ENOMEDIUM;
-    
+
     if (!bs->backing_hd) {
         return -ENOTSUP;
     }
@@ -1902,6 +1903,22 @@ void bdrv_round_to_clusters(BlockDriverState *bs,
     }
 }
 
+/**
+ * Round a region to job cluster boundaries
+ */
+static void round_to_job_clusters(BlockDriverState *bs,
+                                  int64_t sector_num, int nb_sectors,
+                                  int job_cluster_size,
+                                  int64_t *cluster_sector_num,
+                                  int *cluster_nb_sectors)
+{
+    int64_t c = job_cluster_size/BDRV_SECTOR_SIZE;
+
+    *cluster_sector_num = QEMU_ALIGN_DOWN(sector_num, c);
+    *cluster_nb_sectors = QEMU_ALIGN_UP(sector_num - *cluster_sector_num +
+                                        nb_sectors, c);
+}
+
 static bool tracked_request_overlaps(BdrvTrackedRequest *req,
                                      int64_t sector_num, int nb_sectors) {
     /*        aaaa   bbbb */
@@ -1916,7 +1933,9 @@ static bool tracked_request_overlaps(BdrvTrackedRequest *req,
 }
 
 static void coroutine_fn wait_for_overlapping_requests(BlockDriverState *bs,
-        int64_t sector_num, int nb_sectors)
+                                                       int64_t sector_num,
+                                                       int nb_sectors,
+                                                       int job_cluster_size)
 {
     BdrvTrackedRequest *req;
     int64_t cluster_sector_num;
@@ -1931,6 +1950,11 @@ static void coroutine_fn wait_for_overlapping_requests(BlockDriverState *bs,
      */
     bdrv_round_to_clusters(bs, sector_num, nb_sectors,
                            &cluster_sector_num, &cluster_nb_sectors);
+
+    if (job_cluster_size) {
+        round_to_job_clusters(bs, sector_num, nb_sectors, job_cluster_size,
+                              &cluster_sector_num, &cluster_nb_sectors);
+    }
 
     do {
         retry = false;
@@ -2507,11 +2531,23 @@ static int coroutine_fn bdrv_co_do_readv(BlockDriverState *bs,
         bs->copy_on_read_in_flight++;
     }
 
-    if (bs->copy_on_read_in_flight) {
-        wait_for_overlapping_requests(bs, sector_num, nb_sectors);
+    int job_cluster_size = bs->job && bs->job->cluster_size ?
+        bs->job->cluster_size : 0;
+
+    if (bs->copy_on_read_in_flight || job_cluster_size) {
+        wait_for_overlapping_requests(bs, sector_num, nb_sectors,
+                                      job_cluster_size);
     }
 
     tracked_request_begin(&req, bs, sector_num, nb_sectors, false);
+
+    if (bs->job && bs->job->job_type->before_read) {
+        ret = bs->job->job_type->before_read(bs, sector_num, nb_sectors, qiov);
+        if ((ret < 0) || (flags & BDRV_REQ_BACKUP_ONLY)) {
+            /* Note: We do not return any data to the caller */
+            goto out;
+        }
+    }
 
     if (flags & BDRV_REQ_COPY_ON_READ) {
         int pnum;
@@ -2554,6 +2590,17 @@ int coroutine_fn bdrv_co_copy_on_readv(BlockDriverState *bs,
 
     return bdrv_co_do_readv(bs, sector_num, nb_sectors, qiov,
                             BDRV_REQ_COPY_ON_READ);
+}
+
+int coroutine_fn bdrv_co_backup(BlockDriverState *bs,
+    int64_t sector_num, int nb_sectors)
+{
+    if (!bs->job) {
+        return -ENOTSUP;
+    }
+
+    return bdrv_co_do_readv(bs, sector_num, nb_sectors, NULL,
+                            BDRV_REQ_BACKUP_ONLY);
 }
 
 static int coroutine_fn bdrv_co_do_write_zeroes(BlockDriverState *bs,
@@ -2613,11 +2660,22 @@ static int coroutine_fn bdrv_co_do_writev(BlockDriverState *bs,
         bdrv_io_limits_intercept(bs, true, nb_sectors);
     }
 
-    if (bs->copy_on_read_in_flight) {
-        wait_for_overlapping_requests(bs, sector_num, nb_sectors);
+    int job_cluster_size = bs->job && bs->job->cluster_size ?
+        bs->job->cluster_size : 0;
+
+    if (bs->copy_on_read_in_flight || job_cluster_size) {
+        wait_for_overlapping_requests(bs, sector_num, nb_sectors,
+                                      job_cluster_size);
     }
 
     tracked_request_begin(&req, bs, sector_num, nb_sectors, true);
+
+    if (bs->job && bs->job->job_type->before_write) {
+        ret = bs->job->job_type->before_write(bs, sector_num, nb_sectors, qiov);
+        if (ret < 0) {
+            goto out;
+        }
+    }
 
     if (flags & BDRV_REQ_ZERO_WRITE) {
         ret = bdrv_co_do_write_zeroes(bs, sector_num, nb_sectors);
@@ -2637,6 +2695,7 @@ static int coroutine_fn bdrv_co_do_writev(BlockDriverState *bs,
         bs->wr_highest_sector = sector_num + nb_sectors - 1;
     }
 
+out:
     tracked_request_end(&req);
 
     return ret;
