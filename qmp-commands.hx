@@ -889,6 +889,12 @@ EQMP
     },
 
     {
+        .name       = "block-backup",
+        .args_type  = "device:B,target:s,speed:i?,mode:s?,format:s?",
+        .mhandler.cmd_new = qmp_marshal_input_block_backup,
+    },
+
+    {
         .name       = "block-job-set-speed",
         .args_type  = "device:B,speed:o",
         .mhandler.cmd_new = qmp_marshal_input_block_job_set_speed,
