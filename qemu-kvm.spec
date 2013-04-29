@@ -401,6 +401,7 @@ rm -f ${RPM_BUILD_ROOT}%{_datadir}/%{name}/spapr-rtas.bin
 %endif
 %if 0%{!?system_s390x:1}
 rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/s390-zipl.rom
+rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/s390-ccw.img
 %endif
 
 # Provided by package ipxe
