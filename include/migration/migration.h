@@ -31,7 +31,7 @@ typedef struct SaveVMParams SaveVMParams;
 
 struct SaveVMParams {
     int enabled;
-    const char name[256];
+    char name[256];
 };
 
 typedef struct MigrationState MigrationState;
