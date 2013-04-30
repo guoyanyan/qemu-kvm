@@ -255,7 +255,6 @@ dobuild() {
         --sysconfdir=%{_sysconfdir} \
         --interp-prefix=%{_prefix}/qemu-%%M \
         --audio-drv-list=oss \
-        --audio-card-list=ac97,hda \
         --enable-libiscsi \
         --enable-usb-redir \
         --disable-strip \
