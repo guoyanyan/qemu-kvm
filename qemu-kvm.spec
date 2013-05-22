@@ -1,4 +1,6 @@
 %{!?python_sitelib: %global python_sitelib %(%{__python} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())")}
+%{!?_unitdir: %global _unitdir /usr/lib/systemd/system}
+
 # build-time settings that support --with or --without:
 #
 # = kvmonly =
@@ -82,6 +84,7 @@ BuildRequires: ncurses-devel
 BuildRequires: usbredir-devel >= 0.5.2
 BuildRequires: texinfo
 BuildRequires: libiscsi-devel
+BuildRequires: glib2-devel
 
 %if 0%{?have_spice:1}
 BuildRequires: spice-protocol >= 0.12.2
@@ -450,8 +453,9 @@ install -m 0644 pc-bios/efi-virtio.rom   $RPM_BUILD_ROOT%{_datadir}/%{name}
 # For the qemu-guest-agent subpackage install the systemd
 # service and udev rules.
 mkdir -p $RPM_BUILD_ROOT%{_unitdir}
-mkdir -p $RPM_BUILD_ROOT%{_udevdir}
 install -m 0644 qemu-guest-agent.service $RPM_BUILD_ROOT%{_unitdir}
+
+mkdir -p $RPM_BUILD_ROOT%{_udevdir}
 install -m 0644 99-qemu-guest-agent.rules $RPM_BUILD_ROOT%{_udevdir}
 
 # Install rules to use the bridge helper with libvirt's virbr0
