@@ -1,4 +1,6 @@
 %{!?python_sitelib: %global python_sitelib %(%{__python} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())")}
+%{!?_unitdir: %global _unitdir /usr/lib/systemd/system}
+
 # build-time settings that support --with or --without:
 #
 # = kvmonly =
@@ -55,7 +57,7 @@
 
 Summary: qemu-kvm is the qemu backend for kvm
 Name: qemu
-Version: 1.5.0
+Version: 1.5.50
 Release: 10000
 # Epoch because we pushed a qemu-1.0 package. AIUI this can't ever be dropped
 Epoch: 2
@@ -82,6 +84,7 @@ BuildRequires: ncurses-devel
 BuildRequires: usbredir-devel >= 0.5.2
 BuildRequires: texinfo
 BuildRequires: libiscsi-devel
+BuildRequires: glib2-devel
 
 %if 0%{?have_spice:1}
 BuildRequires: spice-protocol >= 0.12.2
@@ -255,7 +258,6 @@ dobuild() {
         --sysconfdir=%{_sysconfdir} \
         --interp-prefix=%{_prefix}/qemu-%%M \
         --audio-drv-list=oss \
-        --audio-card-list=ac97,hda \
         --enable-libiscsi \
         --enable-usb-redir \
         --disable-strip \
@@ -401,6 +403,7 @@ rm -f ${RPM_BUILD_ROOT}%{_datadir}/%{name}/spapr-rtas.bin
 %endif
 %if 0%{!?system_s390x:1}
 rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/s390-zipl.rom
+rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/s390-ccw.img
 %endif
 
 # Provided by package ipxe
@@ -450,8 +453,9 @@ install -m 0644 pc-bios/efi-virtio.rom   $RPM_BUILD_ROOT%{_datadir}/%{name}
 # For the qemu-guest-agent subpackage install the systemd
 # service and udev rules.
 mkdir -p $RPM_BUILD_ROOT%{_unitdir}
-mkdir -p $RPM_BUILD_ROOT%{_udevdir}
 install -m 0644 qemu-guest-agent.service $RPM_BUILD_ROOT%{_unitdir}
+
+mkdir -p $RPM_BUILD_ROOT%{_udevdir}
 install -m 0644 99-qemu-guest-agent.rules $RPM_BUILD_ROOT%{_udevdir}
 
 # Install rules to use the bridge helper with libvirt's virbr0

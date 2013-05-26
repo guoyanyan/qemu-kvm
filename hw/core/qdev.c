@@ -162,6 +162,7 @@ int qdev_init(DeviceState *dev)
 
     object_property_set_bool(OBJECT(dev), true, "realized", &local_err);
     if (local_err != NULL) {
+        qerror_report_err(local_err);
         error_free(local_err);
         qdev_free(dev);
         return -1;
@@ -207,7 +208,7 @@ void qdev_unplug(DeviceState *dev, Error **errp)
 {
     DeviceClass *dc = DEVICE_GET_CLASS(dev);
 
-    if (!dev->parent_bus->allow_hotplug) {
+    if (dev->parent_bus && !dev->parent_bus->allow_hotplug) {
         error_set(errp, QERR_BUS_NO_HOTPLUG, dev->parent_bus->name);
         return;
     }
@@ -751,7 +752,12 @@ static void device_initfn(Object *obj)
         }
         class = object_class_get_parent(class);
     } while (class != object_class_by_name(TYPE_DEVICE));
-    qdev_prop_set_globals(dev);
+    qdev_prop_set_globals(dev, &err);
+    if (err != NULL) {
+        qerror_report_err(err);
+        error_free(err);
+        exit(1);
+    }
 
     object_property_add_link(OBJECT(dev), "parent_bus", TYPE_BUS,
                              (Object **)&dev->parent_bus, &err);

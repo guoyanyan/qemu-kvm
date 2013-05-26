@@ -54,7 +54,7 @@ struct FWCfgState {
 #define JPG_FILE 0
 #define BMP_FILE 1
 
-static char *read_splashfile(char *filename, size_t *file_sizep,
+static char *read_splashfile(char *filename, gsize *file_sizep,
                              int *file_typep)
 {
     GError *err = NULL;
@@ -112,7 +112,7 @@ static void fw_cfg_bootsplash(FWCfgState *s)
     const char *boot_splash_filename = NULL;
     char *p;
     char *filename, *file_data;
-    size_t file_size;
+    gsize file_size;
     int file_type;
     const char *temp;
 
@@ -489,10 +489,16 @@ FWCfgState *fw_cfg_init(uint32_t ctl_port, uint32_t data_port,
     dev = qdev_create(NULL, "fw_cfg");
     qdev_prop_set_uint32(dev, "ctl_iobase", ctl_port);
     qdev_prop_set_uint32(dev, "data_iobase", data_port);
-    qdev_init_nofail(dev);
     d = SYS_BUS_DEVICE(dev);
 
     s = DO_UPCAST(FWCfgState, busdev.qdev, dev);
+
+    if (!object_resolve_path("/machine/fw_cfg", NULL)) {
+        object_property_add_child(qdev_get_machine(), "fw_cfg", OBJECT(s),
+                                  NULL);
+    }
+
+    qdev_init_nofail(dev);
 
     if (ctl_addr) {
         sysbus_mmio_map(d, 0, ctl_addr);

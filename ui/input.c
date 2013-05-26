@@ -28,13 +28,39 @@
 #include "qapi/error.h"
 #include "qmp-commands.h"
 #include "qapi-types.h"
+#include "ui/keymaps.h"
 
-static QEMUPutKBDEvent *qemu_put_kbd_event;
-static void *qemu_put_kbd_event_opaque;
-static QTAILQ_HEAD(, QEMUPutLEDEntry) led_handlers = QTAILQ_HEAD_INITIALIZER(led_handlers);
+struct QEMUPutMouseEntry {
+    QEMUPutMouseEvent *qemu_put_mouse_event;
+    void *qemu_put_mouse_event_opaque;
+    int qemu_put_mouse_event_absolute;
+    char *qemu_put_mouse_event_name;
+
+    int index;
+
+    /* used internally by qemu for handling mice */
+    QTAILQ_ENTRY(QEMUPutMouseEntry) node;
+};
+
+struct QEMUPutKbdEntry {
+    QEMUPutKBDEvent *put_kbd;
+    void *opaque;
+    QTAILQ_ENTRY(QEMUPutKbdEntry) next;
+};
+
+struct QEMUPutLEDEntry {
+    QEMUPutLEDEvent *put_led;
+    void *opaque;
+    QTAILQ_ENTRY(QEMUPutLEDEntry) next;
+};
+
+static QTAILQ_HEAD(, QEMUPutLEDEntry) led_handlers =
+    QTAILQ_HEAD_INITIALIZER(led_handlers);
+static QTAILQ_HEAD(, QEMUPutKbdEntry) kbd_handlers =
+    QTAILQ_HEAD_INITIALIZER(kbd_handlers);
 static QTAILQ_HEAD(, QEMUPutMouseEntry) mouse_handlers =
     QTAILQ_HEAD_INITIALIZER(mouse_handlers);
-static NotifierList mouse_mode_notifiers = 
+static NotifierList mouse_mode_notifiers =
     NOTIFIER_LIST_INITIALIZER(mouse_mode_notifiers);
 
 static const int key_defs[] = {
@@ -235,10 +261,10 @@ static void free_keycodes(void)
 static void release_keys(void *opaque)
 {
     while (keycodes_size > 0) {
-        if (keycodes[--keycodes_size] & 0x80) {
-            kbd_put_keycode(0xe0);
+        if (keycodes[--keycodes_size] & SCANCODE_GREY) {
+            kbd_put_keycode(SCANCODE_EMUL0);
         }
-        kbd_put_keycode(keycodes[keycodes_size] | 0x80);
+        kbd_put_keycode(keycodes[keycodes_size] | SCANCODE_UP);
     }
 
     free_keycodes();
@@ -272,10 +298,10 @@ void qmp_send_key(KeyValueList *keys, bool has_hold_time, int64_t hold_time,
             return;
         }
 
-        if (keycode & 0x80) {
-            kbd_put_keycode(0xe0);
+        if (keycode & SCANCODE_GREY) {
+            kbd_put_keycode(SCANCODE_EMUL0);
         }
-        kbd_put_keycode(keycode & 0x7f);
+        kbd_put_keycode(keycode & SCANCODE_KEYCODEMASK);
 
         keycodes = g_realloc(keycodes, sizeof(int) * (keycodes_size + 1));
         keycodes[keycodes_size++] = keycode;
@@ -286,16 +312,20 @@ void qmp_send_key(KeyValueList *keys, bool has_hold_time, int64_t hold_time,
                    muldiv64(get_ticks_per_sec(), hold_time, 1000));
 }
 
-void qemu_add_kbd_event_handler(QEMUPutKBDEvent *func, void *opaque)
+QEMUPutKbdEntry *qemu_add_kbd_event_handler(QEMUPutKBDEvent *func, void *opaque)
 {
-    qemu_put_kbd_event_opaque = opaque;
-    qemu_put_kbd_event = func;
+    QEMUPutKbdEntry *entry;
+
+    entry = g_malloc0(sizeof(QEMUPutKbdEntry));
+    entry->put_kbd = func;
+    entry->opaque = opaque;
+    QTAILQ_INSERT_HEAD(&kbd_handlers, entry, next);
+    return entry;
 }
 
-void qemu_remove_kbd_event_handler(void)
+void qemu_remove_kbd_event_handler(QEMUPutKbdEntry *entry)
 {
-    qemu_put_kbd_event_opaque = NULL;
-    qemu_put_kbd_event = NULL;
+    QTAILQ_REMOVE(&kbd_handlers, entry, next);
 }
 
 static void check_mode_change(void)
@@ -379,11 +409,13 @@ void qemu_remove_led_event_handler(QEMUPutLEDEntry *entry)
 
 void kbd_put_keycode(int keycode)
 {
+    QEMUPutKbdEntry *entry = QTAILQ_FIRST(&kbd_handlers);
+
     if (!runstate_is_running() && !runstate_check(RUN_STATE_SUSPENDED)) {
         return;
     }
-    if (qemu_put_kbd_event) {
-        qemu_put_kbd_event(qemu_put_kbd_event_opaque, keycode);
+    if (entry) {
+        entry->put_kbd(entry->opaque, keycode);
     }
 }
 

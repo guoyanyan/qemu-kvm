@@ -187,19 +187,15 @@ MemoryRegionSection *phys_page_find(AddressSpaceDispatch *d, hwaddr index)
     PhysPageEntry lp = d->phys_map;
     PhysPageEntry *p;
     int i;
-    uint16_t s_index = phys_section_unassigned;
 
     for (i = P_L2_LEVELS - 1; i >= 0 && !lp.is_leaf; i--) {
         if (lp.ptr == PHYS_MAP_NODE_NIL) {
-            goto not_found;
+            return &phys_sections[phys_section_unassigned];
         }
         p = phys_map_nodes[lp.ptr];
         lp = p[(index >> (i * L2_BITS)) & (L2_SIZE - 1)];
     }
-
-    s_index = lp.ptr;
-not_found:
-    return &phys_sections[s_index];
+    return &phys_sections[lp.ptr];
 }
 
 bool memory_region_is_unassigned(MemoryRegion *mr)
@@ -263,6 +259,16 @@ CPUState *qemu_get_cpu(int index)
     }
 
     return env ? cpu : NULL;
+}
+
+void qemu_for_each_cpu(void (*func)(CPUState *cpu, void *data), void *data)
+{
+    CPUArchState *env = first_cpu;
+
+    while (env) {
+        func(ENV_GET_CPU(env), data);
+        env = env->next_cpu;
+    }
 }
 
 void cpu_exec_init(CPUArchState *env)
@@ -629,12 +635,6 @@ hwaddr memory_region_section_get_iotlb(CPUArchState *env,
             iotlb |= phys_section_rom;
         }
     } else {
-        /* IO handlers are currently passed a physical address.
-           It would be nice to pass an offset from the base address
-           of that region.  This would avoid having to special case RAM,
-           and avoid full address decoding in every device.
-           We can't use the high bits of pd for this because
-           IO_MEM_ROMD uses these as a ram address.  */
         iotlb = section - phys_sections;
         iotlb += memory_region_section_addr(section, paddr);
     }
@@ -709,6 +709,12 @@ static void destroy_all_mappings(AddressSpaceDispatch *d)
 
 static uint16_t phys_section_add(MemoryRegionSection *section)
 {
+    /* The physical section number is ORed with a page-aligned
+     * pointer to produce the iotlb entries.  Thus it should
+     * never overflow into the page-aligned value.
+     */
+    assert(phys_sections_nb < TARGET_PAGE_SIZE);
+
     if (phys_sections_nb == phys_sections_nb_alloc) {
         phys_sections_nb_alloc = MAX(phys_sections_nb_alloc * 2, 16);
         phys_sections = g_renew(MemoryRegionSection, phys_sections,
@@ -765,10 +771,21 @@ static void register_multipage(AddressSpaceDispatch *d, MemoryRegionSection *sec
                   section_index);
 }
 
+QEMU_BUILD_BUG_ON(TARGET_PHYS_ADDR_SPACE_BITS > MAX_PHYS_ADDR_SPACE_BITS)
+
+static MemoryRegionSection limit(MemoryRegionSection section)
+{
+    section.size = MIN(section.offset_within_address_space + section.size,
+                       MAX_PHYS_ADDR + 1)
+                   - section.offset_within_address_space;
+
+    return section;
+}
+
 static void mem_add(MemoryListener *listener, MemoryRegionSection *section)
 {
     AddressSpaceDispatch *d = container_of(listener, AddressSpaceDispatch, listener);
-    MemoryRegionSection now = *section, remain = *section;
+    MemoryRegionSection now = limit(*section), remain = limit(*section);
 
     if ((now.offset_within_address_space & ~TARGET_PAGE_MASK)
         || (now.size < TARGET_PAGE_SIZE)) {
@@ -1052,7 +1069,7 @@ ram_addr_t qemu_ram_alloc_from_ptr(ram_addr_t size, void *host,
 #if defined (__linux__) && !defined(TARGET_S390X)
             new_block->host = file_ram_alloc(new_block, size, mem_path);
             if (!new_block->host) {
-                new_block->host = qemu_vmalloc(size);
+                new_block->host = qemu_anon_ram_alloc(size);
                 memory_try_enable_merging(new_block->host, size);
             }
 #else
@@ -1064,9 +1081,9 @@ ram_addr_t qemu_ram_alloc_from_ptr(ram_addr_t size, void *host,
                 xen_ram_alloc(new_block->offset, size, mr);
             } else if (kvm_enabled()) {
                 /* some s390/kvm configurations have special constraints */
-                new_block->host = kvm_vmalloc(size);
+                new_block->host = kvm_ram_alloc(size);
             } else {
-                new_block->host = qemu_vmalloc(size);
+                new_block->host = qemu_anon_ram_alloc(size);
             }
             memory_try_enable_merging(new_block->host, size);
         }
@@ -1146,21 +1163,17 @@ void qemu_ram_free(ram_addr_t addr)
                     munmap(block->host, block->length);
                     close(block->fd);
                 } else {
-                    qemu_vfree(block->host);
+                    qemu_anon_ram_free(block->host, block->length);
                 }
 #else
                 abort();
 #endif
             } else {
-#if defined(TARGET_S390X) && defined(CONFIG_KVM)
-                munmap(block->host, block->length);
-#else
                 if (xen_enabled()) {
                     xen_invalidate_map_cache_entry(block->host);
                 } else {
-                    qemu_vfree(block->host);
+                    qemu_anon_ram_free(block->host, block->length);
                 }
-#endif
             }
             g_free(block);
             break;
@@ -1332,11 +1345,6 @@ static void *qemu_ram_ptr_length(ram_addr_t addr, ram_addr_t *size)
         fprintf(stderr, "Bad ram offset %" PRIx64 "\n", (uint64_t)addr);
         abort();
     }
-}
-
-void qemu_put_ram_ptr(void *addr)
-{
-    trace_qemu_put_ram_ptr(addr);
 }
 
 int qemu_ram_addr_from_host(void *ptr, ram_addr_t *ram_addr)
@@ -1928,7 +1936,6 @@ void address_space_rw(AddressSpace *as, hwaddr addr, uint8_t *buf,
                 ptr = qemu_get_ram_ptr(addr1);
                 memcpy(ptr, buf, l);
                 invalidate_and_set_dirty(addr1, l);
-                qemu_put_ram_ptr(ptr);
             }
         } else {
             if (!(memory_region_is_ram(section->mr) ||
@@ -1958,7 +1965,6 @@ void address_space_rw(AddressSpace *as, hwaddr addr, uint8_t *buf,
                                        + memory_region_section_addr(section,
                                                                     addr));
                 memcpy(buf, ptr, l);
-                qemu_put_ram_ptr(ptr);
             }
         }
         len -= l;
@@ -2020,7 +2026,6 @@ void cpu_physical_memory_write_rom(hwaddr addr,
             ptr = qemu_get_ram_ptr(addr1);
             memcpy(ptr, buf, l);
             invalidate_and_set_dirty(addr1, l);
-            qemu_put_ram_ptr(ptr);
         }
         len -= l;
         buf += l;
@@ -2395,33 +2400,6 @@ void stl_phys_notdirty(hwaddr addr, uint32_t val)
                     addr1, (0xff & ~CODE_DIRTY_FLAG));
             }
         }
-    }
-}
-
-void stq_phys_notdirty(hwaddr addr, uint64_t val)
-{
-    uint8_t *ptr;
-    MemoryRegionSection *section;
-
-    section = phys_page_find(address_space_memory.dispatch, addr >> TARGET_PAGE_BITS);
-
-    if (!memory_region_is_ram(section->mr) || section->readonly) {
-        addr = memory_region_section_addr(section, addr);
-        if (memory_region_is_ram(section->mr)) {
-            section = &phys_sections[phys_section_rom];
-        }
-#ifdef TARGET_WORDS_BIGENDIAN
-        io_mem_write(section->mr, addr, val >> 32, 4);
-        io_mem_write(section->mr, addr + 4, (uint32_t)val, 4);
-#else
-        io_mem_write(section->mr, addr, (uint32_t)val, 4);
-        io_mem_write(section->mr, addr + 4, val >> 32, 4);
-#endif
-    } else {
-        ptr = qemu_get_ram_ptr((memory_region_get_ram_addr(section->mr)
-                                & TARGET_PAGE_MASK)
-                               + memory_region_section_addr(section, addr));
-        stq_p(ptr, val);
     }
 }
 

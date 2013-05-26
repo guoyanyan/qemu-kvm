@@ -34,7 +34,10 @@
 #include "exec/cpu-defs.h"
 #define TARGET_PAGE_BITS 12
 
-#define TARGET_PHYS_ADDR_SPACE_BITS 64
+/* Actually 64-bits, limited by the memory API to 62 bits.  We
+ * never use that much.
+ */
+#define TARGET_PHYS_ADDR_SPACE_BITS 62
 #define TARGET_VIRT_ADDR_SPACE_BITS 64
 
 #include "exec/cpu-all.h"
@@ -78,6 +81,11 @@ typedef struct MchkQueue {
     uint16_t type;
 } MchkQueue;
 
+/* Defined values for CPUS390XState.runtime_reg_dirty_mask */
+#define KVM_S390_RUNTIME_DIRTY_NONE     0
+#define KVM_S390_RUNTIME_DIRTY_PARTIAL  1
+#define KVM_S390_RUNTIME_DIRTY_FULL     2
+
 typedef struct CPUS390XState {
     uint64_t regs[16];     /* GP registers */
     CPU_DoubleU fregs[16]; /* FP registers */
@@ -120,6 +128,13 @@ typedef struct CPUS390XState {
     uint64_t ckc;
     uint64_t cputm;
     uint32_t todpr;
+
+    /* on S390 the runtime register set has two dirty states:
+     * a partial dirty state in which only the registers that
+     * are needed all the time are fetched. And a fully dirty
+     * state in which all runtime registers are fetched.
+     */
+    uint32_t runtime_reg_dirty_mask;
 
     CPU_COMMON
 
@@ -1068,6 +1083,7 @@ void kvm_s390_io_interrupt(S390CPU *cpu, uint16_t subchannel_id,
                            uint32_t io_int_word);
 void kvm_s390_crw_mchk(S390CPU *cpu);
 void kvm_s390_enable_css_support(S390CPU *cpu);
+int kvm_s390_get_registers_partial(CPUState *cpu);
 #else
 static inline void kvm_s390_io_interrupt(S390CPU *cpu,
                                         uint16_t subchannel_id,
@@ -1081,6 +1097,10 @@ static inline void kvm_s390_crw_mchk(S390CPU *cpu)
 }
 static inline void kvm_s390_enable_css_support(S390CPU *cpu)
 {
+}
+static inline int kvm_s390_get_registers_partial(CPUState *cpu)
+{
+    return -ENOSYS;
 }
 #endif
 
