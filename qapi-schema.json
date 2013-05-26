@@ -1632,6 +1632,16 @@
             '*mode': 'NewImageMode', '*speed': 'int' } }
 
 ##
+# @Abort
+#
+# This action can be used to test transaction failure.
+#
+# Since: 1.6
+###
+{ 'type': 'Abort',
+  'data': { } }
+
+##
 # @TransactionAction
 #
 # A discriminated record of operations that can be performed with
@@ -1640,7 +1650,8 @@
 { 'union': 'TransactionAction',
   'data': {
        'blockdev-snapshot-sync': 'BlockdevSnapshot',
-       'drive-backup': 'DriveBackup'
+       'drive-backup': 'DriveBackup',
+       'abort': 'Abort'
    } }
 
 ##
