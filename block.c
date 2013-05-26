@@ -1073,6 +1073,14 @@ int bdrv_open(BlockDriverState *bs, const char *filename, QDict *options,
         file = NULL;
     }
 
+    /* If there is a mirroring file, use it */
+    if (flags & BDRV_O_MIRRORING) {
+        ret = bdrv_open_mirroring_file(bs);
+        if (ret < 0) {
+            goto close_and_fail;
+        }
+    }
+
     /* If there is a backing file, use it */
     if ((flags & BDRV_O_NO_BACKING) == 0) {
         QDict *backing_options;
@@ -1375,6 +1383,10 @@ void bdrv_close(BlockDriverState *bs)
             bdrv_delete(bs->backing_hd);
             bs->backing_hd = NULL;
         }
+        if (bs->mirroring_hd) {
+            bdrv_delete(bs->mirroring_hd);
+            bs->mirroring_hd = NULL;
+        }
         bs->drv->bdrv_close(bs);
         g_free(bs->opaque);
 #ifdef _WIN32
@@ -1387,6 +1399,7 @@ void bdrv_close(BlockDriverState *bs)
         bs->copy_on_read = 0;
         bs->backing_file[0] = '\0';
         bs->backing_format[0] = '\0';
+        bs->mirroring_file[0] = '\0';
         bs->total_sectors = 0;
         bs->encrypted = 0;
         bs->valid_key = 0;
@@ -4915,5 +4928,27 @@ int bdrv_snapshot_find(BlockDriverState *bs, QEMUSnapshotInfo *sn_info,
     }
     g_free(sn_tab);
     return ret;
+}
+
+int bdrv_open_mirroring_file(BlockDriverState *bs) {
+    int flags = 0, ret;
+    BlockDriver *drv;
+    
+    drv = bdrv_find_protocol(bs->mirroring_file);
+    if (!drv) {
+        return -1;
+    }
+
+    flags = BDRV_O_NO_BACKING | BDRV_O_RDWR;
+
+    bs->mirroring_hd = bdrv_new("");
+    ret = bdrv_open(bs->mirroring_hd, bs->mirroring_file, NULL, flags, drv);
+
+    if (ret < 0) {
+        bdrv_delete(bs->mirroring_hd);
+        bs->mirroring_hd = NULL;
+        return ret;
+    }    
+    return 0;
 }
 

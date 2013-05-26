@@ -315,7 +315,7 @@ static bool do_check_io_limits(BlockIOLimit *io_limits, Error **errp)
 DriveInfo *drive_init(QemuOpts *all_opts, BlockInterfaceType block_default_type)
 {
     const char *buf;
-    const char *file = NULL;
+    const char *file = NULL, *mirroring = NULL;
     const char *serial;
     const char *mediastr = "";
     BlockInterfaceType type;
@@ -379,6 +379,7 @@ DriveInfo *drive_init(QemuOpts *all_opts, BlockInterfaceType block_default_type)
     copy_on_read = qemu_opt_get_bool(opts, "copy-on-read", false);
 
     file = qemu_opt_get(opts, "file");
+    mirroring = qemu_opt_get(opts, "mirroring");
     serial = qemu_opt_get(opts, "serial");
 
     if ((buf = qemu_opt_get(opts, "if")) != NULL) {
@@ -626,6 +627,12 @@ DriveInfo *drive_init(QemuOpts *all_opts, BlockInterfaceType block_default_type)
 
     /* disk I/O throttling */
     bdrv_set_io_limits(dinfo->bdrv, &io_limits);
+
+    /* io mirroring/dup */
+    if (mirroring && *mirroring != 0) {
+        bdrv_flags |= BDRV_O_MIRRORING;
+        snprintf(dinfo->bdrv->mirroring_file, 1024, "%s", mirroring);
+    }
 
     switch(type) {
     case IF_IDE:
@@ -1721,6 +1728,10 @@ QemuOptsList qemu_common_drive_opts = {
             .name = "boot",
             .type = QEMU_OPT_BOOL,
             .help = "(deprecated, ignored)",
+        },{
+            .name = "mirroring",
+            .type = QEMU_OPT_STRING,
+            .help = "image file for io mirroring/duplication",
         },
         { /* end of list */ }
     },
