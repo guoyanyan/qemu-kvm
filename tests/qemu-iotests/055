@@ -228,3 +228,120 @@ class TestSetSpeed(DriveBackupTestCase):
 
         self.cancel_and_wait()
 
+class TestSingleTransaction(DriveBackupTestCase):
+    image_len = 120 * 1024 * 1024 # MB
+
+    def setUp(self):
+        qemu_img('create', '-f', iotests.imgfmt, test_img, str(TestSingleDrive.image_len))
+        self.vm = iotests.VM().add_drive(test_img)
+        self.vm.launch()
+
+    def tearDown(self):
+        self.vm.shutdown()
+        os.remove(test_img)
+        try:
+            os.remove(target_img)
+        except OSError:
+            pass
+
+    def test_complete(self):
+        self.assert_no_active_backups()
+
+        result = self.vm.qmp('transaction', actions=[{
+                'type': 'drive-backup',
+                'data': { 'device': 'drive0',
+                          'target': target_img },
+            }
+        ])
+        self.assert_qmp(result, 'return', {})
+
+        self.complete_and_wait()
+        self.vm.shutdown()
+        self.assertTrue(self.compare_images(test_img, target_img),
+                        'target image does not match source after backup')
+
+    def test_cancel(self):
+        self.assert_no_active_backups()
+
+        result = self.vm.qmp('transaction', actions=[{
+                'type': 'drive-backup',
+                'data': { 'device': 'drive0',
+                          'target': target_img },
+            }
+        ])
+        self.assert_qmp(result, 'return', {})
+
+        self.cancel_and_wait()
+
+    def test_pause(self):
+        self.assert_no_active_backups()
+
+        result = self.vm.qmp('transaction', actions=[{
+                'type': 'drive-backup',
+                'data': { 'device': 'drive0',
+                          'target': target_img },
+            }
+        ])
+        self.assert_qmp(result, 'return', {})
+
+        result = self.vm.qmp('block-job-pause', device='drive0')
+        self.assert_qmp(result, 'return', {})
+
+        time.sleep(1)
+        result = self.vm.qmp('query-block-jobs')
+        offset = self.dictpath(result, 'return[0]/offset')
+
+        time.sleep(1)
+        result = self.vm.qmp('query-block-jobs')
+        self.assert_qmp(result, 'return[0]/offset', offset)
+
+        result = self.vm.qmp('block-job-resume', device='drive0')
+        self.assert_qmp(result, 'return', {})
+
+        self.complete_and_wait()
+        self.vm.shutdown()
+        self.assertTrue(self.compare_images(test_img, target_img),
+                        'target image does not match source after backup')
+
+    def test_medium_not_found(self):
+        result = self.vm.qmp('transaction', actions=[{
+                'type': 'drive-backup',
+                'data': { 'device': 'ide1-cd0',
+                          'target': target_img },
+            }
+        ])
+        self.assert_qmp(result, 'error/class', 'GenericError')
+
+    def test_image_not_found(self):
+        result = self.vm.qmp('transaction', actions=[{
+                'type': 'drive-backup',
+                'data': { 'device': 'drive0',
+                          'mode': 'existing',
+                          'target': target_img },
+            }
+        ])
+        self.assert_qmp(result, 'error/class', 'GenericError')
+
+    def test_device_not_found(self):
+        result = self.vm.qmp('transaction', actions=[{
+                'type': 'drive-backup',
+                'data': { 'device': 'nonexistent',
+                          'mode': 'existing',
+                          'target': target_img },
+            }
+        ])
+        self.assert_qmp(result, 'error/class', 'DeviceNotFound')
+
+    def test_abort(self):
+        result = self.vm.qmp('transaction', actions=[{
+                'type': 'drive-backup',
+                'data': { 'device': 'nonexistent',
+                          'mode': 'existing',
+                          'target': target_img },
+            }, {
+                'type': 'Abort',
+                'data': {},
+            }
+        ])
+        self.assert_qmp(result, 'error/class', 'GenericError')
+        self.assert_no_active_backups()
