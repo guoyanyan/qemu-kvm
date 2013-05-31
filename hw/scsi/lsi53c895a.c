@@ -348,6 +348,7 @@ static void lsi_soft_reset(LSIState *s)
     s->sbc = 0;
     s->csbc = 0;
     s->sbr = 0;
+    qbus_reset_all(&s->bus.qbus);
     assert(QTAILQ_EMPTY(&s->queue));
     assert(!s->current);
 }
