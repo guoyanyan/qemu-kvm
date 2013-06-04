@@ -127,7 +127,8 @@ struct QEMUFile {
                     when reading */
     int buf_index;
     int buf_size; /* 0 when writing */
-    uint8_t buf[IO_BUF_SIZE];
+    uint8_t *buf;
+    int buf_max_size;
 
     struct iovec iov[MAX_IOV_SIZE];
     unsigned int iovcnt;
@@ -582,6 +583,10 @@ QEMUFile *qemu_fopen_ops(void *opaque, const QEMUFileOps *ops)
 
     f->opaque = opaque;
     f->ops = ops;
+
+    f->buf_max_size = IO_BUF_SIZE;
+    f->buf = g_malloc0(sizeof(uint8_t) * f->buf_max_size);
+
     return f;
 }
 
@@ -660,6 +665,20 @@ static void qemu_fill_buffer(QEMUFile *f)
         qemu_file_set_error(f, len);
 }
 
+void *qemu_realloc_buffer(QEMUFile *f, int size)
+{
+    f->buf_max_size = size;
+    f->buf = g_realloc(f->buf, f->buf_max_size);
+
+    return f->buf;
+}
+
+void qemu_clear_buffer(QEMUFile *f)
+{
+    f->buf_size = f->buf_index = f->pos = 0;
+}
+
+
 int qemu_get_fd(QEMUFile *f)
 {
     if (f->ops->get_fd) {
@@ -694,6 +713,7 @@ int qemu_fclose(QEMUFile *f)
     if (f->last_error) {
         ret = f->last_error;
     }
+    g_free(f->buf);
     g_free(f);
     return ret;
 }
