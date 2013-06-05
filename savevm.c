@@ -476,6 +476,13 @@ static const QEMUFileOps socket_write_ops = {
     .close =      socket_close
 };
 
+static const QEMUFileOps socket_rw_ops = {
+    .get_fd =     socket_get_fd,
+    .get_buffer = socket_get_buffer,
+    .writev_buffer = socket_writev_buffer,
+    .close =      socket_close
+};
+
 QEMUFile *qemu_fopen_socket(int fd, const char *mode)
 {
     QEMUFileSocket *s = g_malloc0(sizeof(QEMUFileSocket));
@@ -490,9 +497,9 @@ QEMUFile *qemu_fopen_socket(int fd, const char *mode)
     s->fd = fd;
     if (mode[0] == 'w') {
         qemu_set_block(s->fd);
-        s->file = qemu_fopen_ops(s, &socket_write_ops);
+        s->file = qemu_fopen_ops(s, &socket_rw_ops);
     } else {
-        s->file = qemu_fopen_ops(s, &socket_read_ops);
+        s->file = qemu_fopen_ops(s, &socket_rw_ops);
     }
     return s->file;
 }
