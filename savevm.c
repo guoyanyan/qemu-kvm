@@ -50,6 +50,7 @@
 #define ARP_PTYPE_IP 0x0800
 #define ARP_OP_REQUEST_REV 0x3
 
+int qemu_loadvm_state_no_header(QEMUFile *f);
 static int announce_self_create(uint8_t *buf,
 				uint8_t *mac_addr)
 {
@@ -2170,30 +2171,13 @@ typedef struct LoadStateEntry {
     int version_id;
 } LoadStateEntry;
 
-int qemu_loadvm_state(QEMUFile *f)
+int qemu_loadvm_state_no_header(QEMUFile *f)
 {
     QLIST_HEAD(, LoadStateEntry) loadvm_handlers =
         QLIST_HEAD_INITIALIZER(loadvm_handlers);
     LoadStateEntry *le, *new_le;
     uint8_t section_type;
-    unsigned int v;
     int ret;
-
-    if (qemu_savevm_state_blocked(NULL)) {
-        return -EINVAL;
-    }
-
-    v = qemu_get_be32(f);
-    if (v != QEMU_VM_FILE_MAGIC)
-        return -EINVAL;
-
-    v = qemu_get_be32(f);
-    if (v == QEMU_VM_FILE_VERSION_COMPAT) {
-        fprintf(stderr, "SaveVM v2 format is obsolete and don't work anymore\n");
-        return -ENOTSUP;
-    }
-    if (v != QEMU_VM_FILE_VERSION)
-        return -ENOTSUP;
 
     while ((section_type = qemu_get_byte(f)) != QEMU_VM_EOF) {
         uint32_t instance_id, version_id, section_id;
@@ -2290,6 +2274,27 @@ out:
 }
 
 
+int qemu_loadvm_state(QEMUFile *f)
+{
+    unsigned int v;
+
+    if (qemu_savevm_state_blocked(NULL)) {
+        return -EINVAL;
+    }
+
+    v = qemu_get_be32(f);
+    if (v != QEMU_VM_FILE_MAGIC)
+        return -EINVAL;
+
+    v = qemu_get_be32(f);
+    if (v == QEMU_VM_FILE_VERSION_COMPAT) {
+        fprintf(stderr, "SaveVM v2 format is obsolete and don't work anymore\n");
+        return -ENOTSUP;
+    }
+    if (v != QEMU_VM_FILE_VERSION)
+        return -ENOTSUP;
+    return qemu_loadvm_state_no_header(f);
+}
 /*
  * Deletes snapshots of a given name in all opened images.
  */
