@@ -1,4 +1,6 @@
 %{!?python_sitelib: %global python_sitelib %(%{__python} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())")}
+%{!?_unitdir: %global _unitdir /usr/lib/systemd/system}
+
 # build-time settings that support --with or --without:
 #
 # = kvmonly =
@@ -55,8 +57,8 @@
 
 Summary: qemu-kvm is the qemu backend for kvm
 Name: qemu
-Version: 1.4.0
-Release: 10002
+Version: 1.5.50
+Release: 10000
 # Epoch because we pushed a qemu-1.0 package. AIUI this can't ever be dropped
 Epoch: 2
 License: GPLv2+ and LGPLv2+ and BSD
@@ -82,6 +84,7 @@ BuildRequires: ncurses-devel
 BuildRequires: usbredir-devel >= 0.5.2
 BuildRequires: texinfo
 BuildRequires: libiscsi-devel
+BuildRequires: glib2-devel
 
 %if 0%{?have_spice:1}
 BuildRequires: spice-protocol >= 0.12.2
@@ -255,7 +258,6 @@ dobuild() {
         --sysconfdir=%{_sysconfdir} \
         --interp-prefix=%{_prefix}/qemu-%%M \
         --audio-drv-list=oss \
-        --audio-card-list=ac97,hda \
         --enable-libiscsi \
         --enable-usb-redir \
         --disable-strip \
@@ -268,7 +270,6 @@ dobuild() {
         --disable-curl \
         --disable-tcg-interpreter \
         --disable-bluez \
-        --disable-system \
         --disable-user \
         --disable-guest-base \
         --disable-linux-user \
@@ -401,6 +402,7 @@ rm -f ${RPM_BUILD_ROOT}%{_datadir}/%{name}/spapr-rtas.bin
 %endif
 %if 0%{!?system_s390x:1}
 rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/s390-zipl.rom
+rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/s390-ccw.img
 %endif
 
 # Provided by package ipxe
@@ -412,10 +414,11 @@ rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/bios.bin
 # Provided by package sgabios
 rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/sgabios.bin
 
-# remove all roms
-#rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/*.rom
-#rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/*.bin
-#rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/*.aml
+# remove nic roms not needed for litevirt
+rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/efi-eepro100.rom
+rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/efi-ne2k_pci.rom
+rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/efi-rtl8139.rom
+rm -rf ${RPM_BUILD_ROOT}%{_datadir}/%{name}/efi-pcnet.rom
 
 %if 0%{?system_x86:1}
 # the pxe gpxe images will be symlinks to the images on
@@ -426,10 +429,10 @@ pxe_link() {
 }
 
 pxe_link e1000 8086100e
+pxe_link virtio 1af41000
 #pxe_link ne2k_pci 10ec8029
 #pxe_link pcnet 10222000
 #pxe_link rtl8139 10ec8139
-pxe_link virtio 1af41000
 
 rom_link() {
     ln -s $1 %{buildroot}%{_datadir}/%{name}/$2
@@ -440,23 +443,18 @@ rom_link ../vgabios/VGABIOS-lgpl-latest.cirrus.bin vgabios-cirrus.bin
 rom_link ../vgabios/VGABIOS-lgpl-latest.qxl.bin vgabios-qxl.bin
 rom_link ../vgabios/VGABIOS-lgpl-latest.stdvga.bin vgabios-stdvga.bin
 rom_link ../seabios/bios.bin bios.bin
-#rom_link ../vgabios/VGABIOS-lgpl-latest.vmware.bin vgabios-vmware.bin
-#rom_link ../sgabios/sgabios.bin sgabios.bin
 %endif
 
 # for efi binaries
 install -m 0644 pc-bios/efi-e1000.rom    $RPM_BUILD_ROOT%{_datadir}/%{name}
 install -m 0644 pc-bios/efi-virtio.rom   $RPM_BUILD_ROOT%{_datadir}/%{name}
-#install -m 0644 pc-bios/efi-pcnet.rom    $RPM_BUILD_ROOT%{_datadir}/%{name}
-#install -m 0644 pc-bios/efi-rtl8139.rom  $RPM_BUILD_ROOT%{_datadir}/%{name}
-#install -m 0644 pc-bios/efi-ne2k_pci.rom $RPM_BUILD_ROOT%{_datadir}/%{name}
-
 
 # For the qemu-guest-agent subpackage install the systemd
 # service and udev rules.
 mkdir -p $RPM_BUILD_ROOT%{_unitdir}
-mkdir -p $RPM_BUILD_ROOT%{_udevdir}
 install -m 0644 qemu-guest-agent.service $RPM_BUILD_ROOT%{_unitdir}
+
+mkdir -p $RPM_BUILD_ROOT%{_udevdir}
 install -m 0644 99-qemu-guest-agent.rules $RPM_BUILD_ROOT%{_udevdir}
 
 # Install rules to use the bridge helper with libvirt's virbr0
@@ -547,7 +545,6 @@ getent passwd qemu >/dev/null || \
 %{_datadir}/%{name}/acpi-dsdt.aml
 %{_datadir}/%{name}/q35-acpi-dsdt.aml
 %{_datadir}/%{name}/bios.bin
-#%{_datadir}/%{name}/sgabios.bin
 %{_datadir}/%{name}/linuxboot.bin
 %{_datadir}/%{name}/multiboot.bin
 %{_datadir}/%{name}/kvmvapic.bin
@@ -555,17 +552,10 @@ getent passwd qemu >/dev/null || \
 %{_datadir}/%{name}/vgabios-cirrus.bin
 %{_datadir}/%{name}/vgabios-qxl.bin
 %{_datadir}/%{name}/vgabios-stdvga.bin
-#%{_datadir}/%{name}/vgabios-vmware.bin
 %{_datadir}/%{name}/pxe-e1000.rom
 %{_datadir}/%{name}/pxe-virtio.rom
-#%{_datadir}/%{name}/pxe-pcnet.rom
-#%{_datadir}/%{name}/pxe-rtl8139.rom
-#%{_datadir}/%{name}/pxe-ne2k_pci.rom
 %{_datadir}/%{name}/efi-e1000.rom
 %{_datadir}/%{name}/efi-virtio.rom
-#%{_datadir}/%{name}/efi-pcnet.rom
-#%{_datadir}/%{name}/efi-rtl8139.rom
-#%{_datadir}/%{name}/efi-ne2k_pci.rom
 %{_datadir}/%{name}/qemu-icon.bmp
 %config(noreplace) %{_sysconfdir}/qemu/target-x86_64.conf
 %ifarch %{ix86} x86_64
@@ -593,6 +583,9 @@ getent passwd qemu >/dev/null || \
 %{_bindir}/qom-set
 
 %changelog
+* Sat Apr 06 2013 Hao Luo <hluo@litevirt.com> - 2:1.5.0-10000
+- Set master stream to 1.5.0
+
 * Sat Apr 06 2013 Hao Luo <hluo@litevirt.com> - 2:1.4.0-10002
 - Remove pcbios dependencies
 
