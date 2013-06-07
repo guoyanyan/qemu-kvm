@@ -270,7 +270,6 @@ dobuild() {
         --disable-curl \
         --disable-tcg-interpreter \
         --disable-bluez \
-        --disable-system \
         --disable-user \
         --disable-guest-base \
         --disable-linux-user \
