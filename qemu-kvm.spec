@@ -179,7 +179,6 @@ This package provides a command line tool for manipulating disk images
 %package  common
 Summary: QEMU common files needed by all QEMU targets
 Group: Development/Tools
-Provides: qemu-kvm-tools
 Requires(post): /usr/bin/getent
 Requires(post): /usr/sbin/groupadd
 Requires(post): /usr/sbin/useradd
@@ -191,6 +190,16 @@ QEMU is a generic and open source processor emulator which achieves a good
 emulation speed by using dynamic translation.
 
 This package provides the common files needed by all QEMU targets
+
+
+%package kvm-tools
+Summary: KVM debugging and diagnostics tools
+Group: Development/Tools
+
+%description kvm-tools
+This package contains some diagnostics and debugging tools for KVM,
+such as kvm_stat.
+
 
 %package qmp
 Summary: QEMU QMP utilities
@@ -528,13 +537,14 @@ getent passwd qemu >/dev/null || \
 %dir %{_datadir}/%{name}/
 %{_datadir}/%{name}/keymaps/
 %{_mandir}/man1/qemu.1*
-#%{_mandir}/man1/virtfs-proxy-helper.1*
-%{_bindir}/kvm_stat
-#%{_bindir}/virtfs-proxy-helper
 %{_libexecdir}/qemu-bridge-helper
 %config(noreplace) %{_sysconfdir}/sasl2/qemu.conf
 %dir %{_sysconfdir}/qemu
 %config(noreplace) %{_sysconfdir}/qemu/bridge.conf
+
+%files kvm-tools
+%defattr(-,root,root,-)
+%{_bindir}/kvm_stat
 
 %files guest-agent
 %defattr(-,root,root,-)
