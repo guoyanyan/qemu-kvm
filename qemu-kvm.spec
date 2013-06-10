@@ -18,7 +18,7 @@
 #
 # Enable by default, except on RHEL.
 
-%bcond_without kvmonly          # enabled
+%bcond_with    kvmonly          # disabled
 %bcond_without exclusive_x86_64 # enabled
 %bcond_with    rbd              # disabled
 %bcond_without spice            # enabled
@@ -50,9 +50,14 @@
 %global need_qemu_kvm 1
 %endif
 
+
 %if %{with kvmonly}
 # If kvmonly, put the qemu-kvm binary in the qemu-kvm package
 %global kvm_package   kvm
+%else
+# If not kvmonly, build all packages and give them normal names. qemu-kvm
+# is a simple wrapper package and is only build for archs that support KVM.
+%global system_x86    system-x86
 %endif
 
 Summary: qemu-kvm is the qemu backend for kvm
@@ -123,6 +128,10 @@ BuildRequires: libfdt-devel
 # For test suite
 BuildRequires: check-devel
 Requires: %{name}-img = %{epoch}:%{version}-%{release}
+
+%if 0%{?system_x86:1}
+Requires: %{name}-%{system_x86} = %{epoch}:%{version}-%{release}
+%endif
 
 %define qemudocdir %{_docdir}/%{name}
 
@@ -538,9 +547,7 @@ getent passwd qemu >/dev/null || \
 %files %{system_x86}
 %defattr(-,root,root)
 %if %{without kvmonly}
-%{_bindir}/qemu-system-i386
 %{_bindir}/qemu-system-x86_64
-%{_datadir}/systemtap/tapset/qemu-system-i386.stp
 %{_datadir}/systemtap/tapset/qemu-system-x86_64.stp
 %endif
 %{_datadir}/%{name}/acpi-dsdt.aml
