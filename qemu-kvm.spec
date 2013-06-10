@@ -170,6 +170,7 @@ This package provides a command line tool for manipulating disk images
 %package  common
 Summary: QEMU common files needed by all QEMU targets
 Group: Development/Tools
+Provides: qemu-kvm-tools
 Requires(post): /usr/bin/getent
 Requires(post): /usr/sbin/groupadd
 Requires(post): /usr/sbin/useradd
