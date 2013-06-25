@@ -336,7 +336,7 @@ dobuild --target-list=%{kvm_target}-softmmu
 
 # Setup back compat qemu-kvm binary which defaults to KVM=on
 ./scripts/tracetool.py --backend dtrace --format stap \
-  --binary %{_bindir}/qemu-kvm --target-arch %{kvm_target} --target-type system \
+  --binary %{_bindir}/qemu-kvm --target-name %{kvm_target} --target-type system \
   --probe-prefix qemu.kvm < ./trace-events > qemu-kvm.stp
 
 cp -a %{kvm_target}-softmmu/qemu-system-%{kvm_target} qemu-kvm
@@ -536,6 +536,7 @@ getent passwd qemu >/dev/null || \
 %doc %{qemudocdir}/qmp-commands.txt
 %dir %{_datadir}/%{name}/
 %{_datadir}/%{name}/keymaps/
+%{_datadir}/%{name}/qemu_logo_no_text.svg
 %{_mandir}/man1/qemu.1*
 %{_libexecdir}/qemu-bridge-helper
 %config(noreplace) %{_sysconfdir}/sasl2/qemu.conf
