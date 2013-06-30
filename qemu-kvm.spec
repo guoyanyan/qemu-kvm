@@ -55,7 +55,7 @@
 
 Summary: qemu-kvm is the qemu backend for kvm
 Name: qemu
-Version: 1.4.1
+Version: 1.4.2
 Release: 10000
 # Epoch because we pushed a qemu-1.0 package. AIUI this can't ever be dropped
 Epoch: 2
