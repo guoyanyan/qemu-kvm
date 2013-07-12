@@ -451,7 +451,7 @@ static uint64_t spapr_io_read(void *opaque, hwaddr addr,
     case 4:
         return cpu_inl(addr);
     }
-    assert(0);
+    g_assert_not_reached();
 }
 
 static void spapr_io_write(void *opaque, hwaddr addr,
@@ -468,7 +468,7 @@ static void spapr_io_write(void *opaque, hwaddr addr,
         cpu_outl(addr, data);
         return;
     }
-    assert(0);
+    g_assert_not_reached();
 }
 
 static const MemoryRegionOps spapr_io_ops = {
@@ -581,10 +581,11 @@ static int spapr_phb_init(SysBusDevice *s)
 
     /* Initialize memory regions */
     sprintf(namebuf, "%s.mmio", sphb->dtbusname);
-    memory_region_init(&sphb->memspace, namebuf, INT64_MAX);
+    memory_region_init(&sphb->memspace, OBJECT(sphb), namebuf, INT64_MAX);
 
     sprintf(namebuf, "%s.mmio-alias", sphb->dtbusname);
-    memory_region_init_alias(&sphb->memwindow, namebuf, &sphb->memspace,
+    memory_region_init_alias(&sphb->memwindow, OBJECT(sphb),
+                             namebuf, &sphb->memspace,
                              SPAPR_PCI_MEM_WIN_BUS_OFFSET, sphb->mem_win_size);
     memory_region_add_subregion(get_system_memory(), sphb->mem_win_addr,
                                 &sphb->memwindow);
@@ -598,12 +599,13 @@ static int spapr_phb_init(SysBusDevice *s)
      * system_io works around the problem until all the users of
      * old_portion are updated */
     sprintf(namebuf, "%s.io", sphb->dtbusname);
-    memory_region_init(&sphb->iospace, namebuf, SPAPR_PCI_IO_WIN_SIZE);
+    memory_region_init(&sphb->iospace, OBJECT(sphb),
+                       namebuf, SPAPR_PCI_IO_WIN_SIZE);
     /* FIXME: fix to support multiple PHBs */
     memory_region_add_subregion(get_system_io(), 0, &sphb->iospace);
 
     sprintf(namebuf, "%s.io-alias", sphb->dtbusname);
-    memory_region_init_io(&sphb->iowindow, &spapr_io_ops, sphb,
+    memory_region_init_io(&sphb->iowindow, OBJECT(sphb), &spapr_io_ops, sphb,
                           namebuf, SPAPR_PCI_IO_WIN_SIZE);
     memory_region_add_subregion(get_system_memory(), sphb->io_win_addr,
                                 &sphb->iowindow);
@@ -613,7 +615,7 @@ static int spapr_phb_init(SysBusDevice *s)
      * from msi_notify()/msix_notify() */
     if (msi_supported) {
         sprintf(namebuf, "%s.msi", sphb->dtbusname);
-        memory_region_init_io(&sphb->msiwindow, &spapr_msi_ops, sphb,
+        memory_region_init_io(&sphb->msiwindow, OBJECT(sphb), &spapr_msi_ops, sphb,
                               namebuf, SPAPR_MSIX_MAX_DEVS * 0x10000);
         memory_region_add_subregion(get_system_memory(), sphb->msi_win_addr,
                                     &sphb->msiwindow);
@@ -646,7 +648,8 @@ static int spapr_phb_init(SysBusDevice *s)
 
     sphb->dma_window_start = 0;
     sphb->dma_window_size = 0x40000000;
-    sphb->tcet = spapr_tce_new_table(sphb->dma_liobn, sphb->dma_window_size);
+    sphb->tcet = spapr_tce_new_table(DEVICE(sphb), sphb->dma_liobn,
+                                     sphb->dma_window_size);
     if (!sphb->tcet) {
         fprintf(stderr, "Unable to create TCE table for %s\n", sphb->dtbusname);
         return -1;
@@ -696,11 +699,21 @@ static Property spapr_phb_properties[] = {
     DEFINE_PROP_END_OF_LIST(),
 };
 
+static const char *spapr_phb_root_bus_path(PCIHostState *host_bridge,
+                                           PCIBus *rootbus)
+{
+    sPAPRPHBState *sphb = SPAPR_PCI_HOST_BRIDGE(host_bridge);
+
+    return sphb->dtbusname;
+}
+
 static void spapr_phb_class_init(ObjectClass *klass, void *data)
 {
+    PCIHostBridgeClass *hc = PCI_HOST_BRIDGE_CLASS(klass);
     SysBusDeviceClass *sdc = SYS_BUS_DEVICE_CLASS(klass);
     DeviceClass *dc = DEVICE_CLASS(klass);
 
+    hc->root_bus_path = spapr_phb_root_bus_path;
     sdc->init = spapr_phb_init;
     dc->props = spapr_phb_properties;
     dc->reset = spapr_phb_reset;
