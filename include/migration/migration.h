@@ -49,6 +49,7 @@ struct MigrationState
     int64_t dirty_bytes_rate;
     bool enabled_capabilities[MIGRATION_CAPABILITY_MAX];
     int64_t xbzrle_cache_size;
+    int64_t setup_time;
 };
 
 void process_incoming_migration(QEMUFile *f);
@@ -77,6 +78,10 @@ void fd_start_incoming_migration(const char *path, Error **errp);
 
 void fd_start_outgoing_migration(MigrationState *s, const char *fdname, Error **errp);
 
+void rdma_start_outgoing_migration(void *opaque, const char *host_port, Error **errp);
+
+void rdma_start_incoming_migration(const char *host_port, Error **errp);
+
 void migrate_fd_error(MigrationState *s);
 
 void migrate_fd_connect(MigrationState *s);
@@ -85,7 +90,7 @@ int migrate_fd_close(MigrationState *s);
 
 void add_migration_state_change_notifier(Notifier *notify);
 void remove_migration_state_change_notifier(Notifier *notify);
-bool migration_is_active(MigrationState *);
+bool migration_in_setup(MigrationState *);
 bool migration_has_finished(MigrationState *);
 bool migration_has_failed(MigrationState *);
 MigrationState *migrate_get_current(void);
@@ -108,6 +113,8 @@ uint64_t xbzrle_mig_bytes_transferred(void);
 uint64_t xbzrle_mig_pages_transferred(void);
 uint64_t xbzrle_mig_pages_overflow(void);
 uint64_t xbzrle_mig_pages_cache_miss(void);
+
+void ram_handle_compressed(void *host, uint8_t ch, uint64_t size);
 
 /**
  * @migrate_add_blocker - prevent migration from proceeding

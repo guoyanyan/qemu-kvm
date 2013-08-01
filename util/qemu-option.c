@@ -173,8 +173,8 @@ static void parse_option_number(const char *name, const char *value,
     }
 }
 
-static void parse_option_size(const char *name, const char *value,
-                              uint64_t *ret, Error **errp)
+void parse_option_size(const char *name, const char *value,
+                       uint64_t *ret, Error **errp)
 {
     char *postfix;
     double sizef;
@@ -591,6 +591,20 @@ static const QemuOptDesc *find_desc_by_name(const QemuOptDesc *desc,
     }
 
     return NULL;
+}
+
+int qemu_opt_unset(QemuOpts *opts, const char *name)
+{
+    QemuOpt *opt = qemu_opt_find(opts, name);
+
+    assert(opts_accepts_any(opts));
+
+    if (opt == NULL) {
+        return -1;
+    } else {
+        qemu_opt_del(opt);
+        return 0;
+    }
 }
 
 static void opt_set(QemuOpts *opts, const char *name, const char *value,

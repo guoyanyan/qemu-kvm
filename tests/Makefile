@@ -53,7 +53,8 @@ check-block-$(CONFIG_POSIX) += tests/qemu-iotests-quick.sh
 
 # All QTests for now are POSIX-only, but the dependencies are
 # really in libqtest, not in the testcases themselves.
-check-qtest-i386-y = tests/fdc-test$(EXESUF)
+check-qtest-i386-y = tests/endianness-test$(EXESUF)
+check-qtest-i386-y += tests/fdc-test$(EXESUF)
 gcov-files-i386-y = hw/fdc.c
 check-qtest-i386-y += tests/ide-test$(EXESUF)
 check-qtest-i386-y += tests/hd-geo-test$(EXESUF)
@@ -65,14 +66,30 @@ check-qtest-i386-y += tests/fw_cfg-test$(EXESUF)
 check-qtest-x86_64-y = $(check-qtest-i386-y)
 gcov-files-i386-y += i386-softmmu/hw/mc146818rtc.c
 gcov-files-x86_64-y = $(subst i386-softmmu/,x86_64-softmmu/,$(gcov-files-i386-y))
+check-qtest-mips-y = tests/endianness-test$(EXESUF)
+check-qtest-mips64-y = tests/endianness-test$(EXESUF)
+check-qtest-mips64el-y = tests/endianness-test$(EXESUF)
+check-qtest-ppc-y = tests/endianness-test$(EXESUF)
+check-qtest-ppc64-y = tests/endianness-test$(EXESUF)
+check-qtest-sh4-y = tests/endianness-test$(EXESUF)
+check-qtest-sh4eb-y = tests/endianness-test$(EXESUF)
+check-qtest-sparc64-y = tests/endianness-test$(EXESUF)
 #check-qtest-sparc-y = tests/m48t59-test$(EXESUF)
-#check-qtest-sparc64-y = tests/m48t59-test$(EXESUF)
+#check-qtest-sparc64-y += tests/m48t59-test$(EXESUF)
 gcov-files-sparc-y += hw/m48t59.c
 gcov-files-sparc64-y += hw/m48t59.c
 check-qtest-arm-y = tests/tmp105-test$(EXESUF)
 gcov-files-arm-y += hw/tmp105.c
 check-qtest-ppc-y += tests/boot-order-test$(EXESUF)
 check-qtest-ppc64-y += tests/boot-order-test$(EXESUF)
+
+check-qapi-schema-y := $(addprefix tests/qapi-schema/, \
+        comments.json empty.json funny-char.json indented-expr.json \
+        missing-colon.json missing-comma-list.json \
+        missing-comma-object.json non-objects.json \
+        qapi-schema-test.json quoted-structural-chars.json \
+        trailing-comma-list.json trailing-comma-object.json \
+        unclosed-list.json unclosed-object.json unclosed-string.json)
 
 GENERATED_HEADERS += tests/test-qapi-types.h tests/test-qapi-visit.h tests/test-qmp-commands.h
 
@@ -108,13 +125,13 @@ tests/test-cutils$(EXESUF): tests/test-cutils.o util/cutils.o
 tests/test-int128$(EXESUF): tests/test-int128.o
 
 tests/test-qapi-types.c tests/test-qapi-types.h :\
-$(SRC_PATH)/qapi-schema-test.json $(SRC_PATH)/scripts/qapi-types.py
+$(SRC_PATH)/tests/qapi-schema/qapi-schema-test.json $(SRC_PATH)/scripts/qapi-types.py
 	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-types.py $(gen-out-type) -o tests -p "test-" < $<, "  GEN   $@")
 tests/test-qapi-visit.c tests/test-qapi-visit.h :\
-$(SRC_PATH)/qapi-schema-test.json $(SRC_PATH)/scripts/qapi-visit.py
+$(SRC_PATH)/tests/qapi-schema/qapi-schema-test.json $(SRC_PATH)/scripts/qapi-visit.py
 	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-visit.py $(gen-out-type) -o tests -p "test-" < $<, "  GEN   $@")
 tests/test-qmp-commands.h tests/test-qmp-marshal.c :\
-$(SRC_PATH)/qapi-schema-test.json $(SRC_PATH)/scripts/qapi-commands.py
+$(SRC_PATH)/tests/qapi-schema/qapi-schema-test.json $(SRC_PATH)/scripts/qapi-commands.py
 	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-commands.py $(gen-out-type) -o tests -p "test-" < $<, "  GEN   $@")
 
 tests/test-string-output-visitor$(EXESUF): tests/test-string-output-visitor.o $(test-qapi-obj-y) libqemuutil.a libqemustub.a
@@ -136,6 +153,7 @@ libqos-omap-obj-y = $(libqos-obj-y) tests/libqos/i2c-omap.o
 
 tests/rtc-test$(EXESUF): tests/rtc-test.o
 tests/m48t59-test$(EXESUF): tests/m48t59-test.o
+tests/endianness-test$(EXESUF): tests/endianness-test.o
 tests/fdc-test$(EXESUF): tests/fdc-test.o
 tests/ide-test$(EXESUF): tests/ide-test.o $(libqos-pc-obj-y)
 tests/hd-geo-test$(EXESUF): tests/hd-geo-test.o
@@ -161,6 +179,7 @@ check-help:
 	@echo " make check-qtest-TARGET   Run qtest tests for given target"
 	@echo " make check-qtest          Run qtest tests"
 	@echo " make check-unit           Run qobject tests"
+	@echo " make check-qapi-schema    Run QAPI schema tests"
 	@echo " make check-block          Run block tests"
 	@echo " make check-report.html    Generates an HTML test report"
 	@echo
@@ -223,13 +242,24 @@ check-report.html: check-report.xml
 check-tests/qemu-iotests-quick.sh: tests/qemu-iotests-quick.sh qemu-img$(EXESUF) qemu-io$(EXESUF)
 	$<
 
+.PHONY: check-tests/test-qapi.py
+check-tests/test-qapi.py: tests/test-qapi.py
+
+.PHONY: $(patsubst %, check-%, $(check-qapi-schema-y))
+$(patsubst %, check-%, $(check-qapi-schema-y)): check-%.json: $(SRC_PATH)/%.json
+	$(call quiet-command, PYTHONPATH=$(SRC_PATH)/scripts $(PYTHON) $(SRC_PATH)/tests/qapi-schema/test-qapi.py <$^ >$*.out 2>$*.err; echo $$? >$*.exit, "  TEST  $*.out")
+	@diff -q $(SRC_PATH)/$*.out $*.out
+	@diff -q $(SRC_PATH)/$*.err $*.err
+	@diff -q $(SRC_PATH)/$*.exit $*.exit
+
 # Consolidated targets
 
-.PHONY: check-qtest check-unit check
+.PHONY: check-qapi-schema check-qtest check-unit check
+check-qapi-schema: $(patsubst %,check-%, $(check-qapi-schema-y))
 check-qtest: $(patsubst %,check-qtest-%, $(QTEST_TARGETS))
 check-unit: $(patsubst %,check-%, $(check-unit-y))
 check-block: $(patsubst %,check-%, $(check-block-y))
-check: check-unit check-qtest
+check: check-qapi-schema check-unit check-qtest
 
 -include $(wildcard tests/*.d)
 -include $(wildcard tests/libqos/*.d)

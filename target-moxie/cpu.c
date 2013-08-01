@@ -22,6 +22,13 @@
 #include "migration/vmstate.h"
 #include "machine.h"
 
+static void moxie_cpu_set_pc(CPUState *cs, vaddr value)
+{
+    MoxieCPU *cpu = MOXIE_CPU(cs);
+
+    cpu->env.pc = value;
+}
+
 static void moxie_cpu_reset(CPUState *s)
 {
     MoxieCPU *cpu = MOXIE_CPU(s);
@@ -38,10 +45,11 @@ static void moxie_cpu_reset(CPUState *s)
 
 static void moxie_cpu_realizefn(DeviceState *dev, Error **errp)
 {
-    MoxieCPU *cpu = MOXIE_CPU(dev);
+    CPUState *cs = CPU(dev);
     MoxieCPUClass *mcc = MOXIE_CPU_GET_CLASS(dev);
 
-    cpu_reset(CPU(cpu));
+    qemu_init_vcpu(cs);
+    cpu_reset(cs);
 
     mcc->parent_realize(dev, errp);
 }
@@ -93,7 +101,11 @@ static void moxie_cpu_class_init(ObjectClass *oc, void *data)
 
     cc->do_interrupt = moxie_cpu_do_interrupt;
     cc->dump_state = moxie_cpu_dump_state;
-    cpu_class_set_vmsd(cc, &vmstate_moxie_cpu);
+    cc->set_pc = moxie_cpu_set_pc;
+#ifndef CONFIG_USER_ONLY
+    cc->get_phys_page_debug = moxie_cpu_get_phys_page_debug;
+    cc->vmsd = &vmstate_moxie_cpu;
+#endif
 }
 
 static void moxielite_initfn(Object *obj)

@@ -42,6 +42,7 @@
 #include "sysemu/blockdev.h"
 #include "hw/sysbus.h"
 #include "exec/address-spaces.h"
+#include "sysemu/qtest.h"
 
 enum jazz_model_e
 {
@@ -119,6 +120,7 @@ static void mips_jazz_init(MemoryRegion *address_space,
     qemu_irq *rc4030, *i8259;
     rc4030_dma *dmas;
     void* rc4030_opaque;
+    MemoryRegion *isa = g_new(MemoryRegion, 1);
     MemoryRegion *rtc = g_new(MemoryRegion, 1);
     MemoryRegion *i8042 = g_new(MemoryRegion, 1);
     MemoryRegion *dma_dummy = g_new(MemoryRegion, 1);
@@ -175,10 +177,9 @@ static void mips_jazz_init(MemoryRegion *address_space,
     } else {
         bios_size = -1;
     }
-    if (bios_size < 0 || bios_size > MAGNUM_BIOS_SIZE) {
-        fprintf(stderr, "qemu: Could not load MIPS bios '%s'\n",
+    if ((bios_size < 0 || bios_size > MAGNUM_BIOS_SIZE) && !qtest_enabled()) {
+        fprintf(stderr, "qemu: Warning, could not load MIPS bios '%s'\n",
                 bios_name);
-        exit(1);
     }
 
     /* Init CPU internal devices */
@@ -201,7 +202,9 @@ static void mips_jazz_init(MemoryRegion *address_space,
     pcspk_init(isa_bus, pit);
 
     /* ISA IO space at 0x90000000 */
-    isa_mmio_init(0x90000000, 0x01000000);
+    memory_region_init_alias(isa, NULL, "isa_mmio",
+                             get_system_io(), 0, 0x01000000);
+    memory_region_add_subregion(address_space, 0x90000000, isa);
     isa_mem_base = 0x11000000;
 
     /* Video card */
