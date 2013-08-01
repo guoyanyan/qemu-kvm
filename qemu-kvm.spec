@@ -281,7 +281,6 @@ dobuild() {
         --enable-usb-redir \
         --disable-strip \
         --disable-slirp \
-        --disable-nptl \
         --disable-guest-base \
         --disable-vde \
         --disable-xfsctl \
@@ -302,6 +301,7 @@ dobuild() {
         --enable-virtio-blk-data-plane \
         --enable-spice \
         --enable-mixemu \
+        --enable-vhost-net \
         --disable-rbd \
         --disable-fdt \
         --enable-trace-backend=dtrace \
