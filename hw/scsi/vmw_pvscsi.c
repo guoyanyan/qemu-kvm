@@ -1136,7 +1136,7 @@ pvscsi_post_load(void *opaque, int version_id)
 }
 
 static const VMStateDescription vmstate_pvscsi = {
-    .name = TYPE_PVSCSI,
+    .name = "pvscsi",
     .version_id = 0,
     .minimum_version_id = 0,
     .minimum_version_id_old = 0,
@@ -1197,11 +1197,12 @@ static void pvscsi_class_init(ObjectClass *klass, void *data)
     dc->reset = pvscsi_reset;
     dc->vmsd = &vmstate_pvscsi;
     dc->props = pvscsi_properties;
+    set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
     k->config_write = pvscsi_write_config;
 }
 
 static const TypeInfo pvscsi_info = {
-    .name          = "pvscsi",
+    .name          = TYPE_PVSCSI,
     .parent        = TYPE_PCI_DEVICE,
     .instance_size = sizeof(PVSCSIState),
     .class_init    = pvscsi_class_init,
